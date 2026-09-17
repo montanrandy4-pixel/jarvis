@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 
 import pytest
-from conftest import BackendError, Completion, FakeBackend, ToolCall, calls_tool, says
+from fakes import BackendError, Completion, FakeBackend, ToolCall, calls_tool, says
 
 from jarvis.agent import Agent
 from jarvis.tools import Registry, Tool, ToolResult

@@ -162,7 +162,7 @@ class Registry:
 
 def build_registry(config, memory, *, confirm: ConfirmFn | None = None) -> Registry:
     """Assemble the standard tool set for a session."""
-    from . import filesystem, memory_tools, shell, system, timers, web
+    from . import filesystem, memory_tools, shell, shop_tools, system, timers, web
 
     registry = Registry(confirm=confirm)
     for tool in [
@@ -177,5 +177,9 @@ def build_registry(config, memory, *, confirm: ConfirmFn | None = None) -> Regis
             registry.add(tool)
     if config.allow_web:
         for tool in web.tools(config):
+            registry.add(tool)
+    # Only offered when there is actually a shop configured on this machine.
+    if shop_tools.available():
+        for tool in shop_tools.tools():
             registry.add(tool)
     return registry

@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 
 import pytest
-from conftest import FakeBackend, says
+from fakes import FakeBackend, says
 
 from jarvis.agent import Agent
 from jarvis.audio.tts import PrintSpeaker

@@ -7,7 +7,7 @@ import threading
 import urllib.request
 
 import pytest
-from conftest import FakeBackend, calls_tool, says
+from fakes import FakeBackend, calls_tool, says
 
 from jarvis.server import build_server
 

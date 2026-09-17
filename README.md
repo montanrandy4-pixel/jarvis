@@ -197,6 +197,19 @@ src/jarvis/
   audio/        mic, VAD, whisper, speech synthesis
 ```
 
+## Running a shop
+
+The repository also contains a Shopify autopilot that uses the same local
+model: it turns a supplier feed into listings, keeps prices and stock in step,
+and triages orders. When it is configured, JARVIS gains read-only tools for it,
+so you can ask how the shop is doing out loud.
+
+```bash
+shop init && shop doctor && shop plan
+```
+
+See [SHOP.md](SHOP.md) — including what it deliberately will not do.
+
 ## Limitations
 
 - Small local models call tools less reliably than frontier ones. If it ignores
