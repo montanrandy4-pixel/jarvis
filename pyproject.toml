@@ -5,13 +5,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "jarvis"
 version = "0.1.0"
-description = "A voice-driven AI assistant powered by Claude."
+description = "A voice-driven AI assistant that runs on your own machine."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-dependencies = [
-    "anthropic>=0.40",
-]
+# No runtime dependencies: the app, the model client and the server are all
+# built on the standard library. The extras below are only for the optional
+# terminal voice mode.
+dependencies = []
 
 [project.optional-dependencies]
 # Local speech recognition. faster-whisper is the default engine.
@@ -37,6 +38,9 @@ jarvis = "jarvis.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+jarvis = ["web/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

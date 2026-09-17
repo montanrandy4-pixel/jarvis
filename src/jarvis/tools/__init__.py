@@ -14,7 +14,7 @@ ConfirmFn = Callable[[str, str], bool]
 
 
 class ToolInputError(ValueError):
-    """Raised when Claude's tool input does not match the declared schema."""
+    """Raised when a tool input does not match the declared schema."""
 
 
 @dataclass
@@ -40,14 +40,14 @@ class Tool:
     summarize: Callable[[dict], str] | None = None
 
     def spec(self) -> dict:
-        """The tool definition sent to the API."""
+        """The tool definition, in the function-calling shape every backend uses."""
         return {
-            "name": self.name,
-            "description": self.description,
-            "input_schema": self.input_schema,
-            # Inputs are small, but streaming them costs nothing and gets file
-            # contents moving before the model finishes the block.
-            "eager_input_streaming": True,
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": self.input_schema,
+            },
         }
 
     def requires_confirmation(self, args: dict) -> bool:
@@ -130,7 +130,7 @@ class Registry:
         return len(self.tools)
 
     def specs(self) -> list[dict]:
-        # Sorted so the tool block is byte-stable and stays cacheable.
+        # Sorted so the tool list is stable from one request to the next.
         return [self.tools[name].spec() for name in sorted(self.tools)]
 
     def run(self, name: str, raw_input: Any) -> ToolResult:
@@ -141,7 +141,7 @@ class Registry:
         try:
             args = validate(tool.input_schema, raw_input)
         except ToolInputError as exc:
-            # Claude sees this and retries with a corrected call.
+            # The model sees this and retries with a corrected call.
             return ToolResult(f"Invalid input for {name}: {exc}", is_error=True)
 
         if self.confirm is not None and tool.requires_confirmation(args):
@@ -162,7 +162,7 @@ class Registry:
 
 def build_registry(config, memory, *, confirm: ConfirmFn | None = None) -> Registry:
     """Assemble the standard tool set for a session."""
-    from . import filesystem, memory_tools, shell, system, timers
+    from . import filesystem, memory_tools, shell, system, timers, web
 
     registry = Registry(confirm=confirm)
     for tool in [
@@ -174,5 +174,8 @@ def build_registry(config, memory, *, confirm: ConfirmFn | None = None) -> Regis
         registry.add(tool)
     if config.shell != "off":
         for tool in shell.tools(config):
+            registry.add(tool)
+    if config.allow_web:
+        for tool in web.tools(config):
             registry.add(tool)
     return registry

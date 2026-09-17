@@ -10,18 +10,18 @@ from jarvis.config import Config
 def test_defaults_are_usable_without_any_setup():
     config = Config.load()
 
-    assert config.model == "claude-opus-5"
-    assert config.effort == "low"  # Voice wants latency over deliberation.
+    assert config.backend == "ollama"  # Runs on this machine by default.
+    assert config.model == "llama3.1:8b"
     assert config.shell == "confirm"
 
 
 def test_environment_overrides_defaults(monkeypatch):
-    monkeypatch.setenv("JARVIS_MODEL", "claude-sonnet-5")
+    monkeypatch.setenv("JARVIS_MODEL", "qwen2.5:7b")
     monkeypatch.setenv("JARVIS_WAKE_WORD", "computer")
 
     config = Config.load()
 
-    assert config.model == "claude-sonnet-5"
+    assert config.model == "qwen2.5:7b"
     assert config.wake_word == "computer"
 
 

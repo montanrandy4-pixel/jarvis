@@ -2,8 +2,8 @@
 
 Settings come from three places, later ones winning: built-in defaults, a TOML
 file at ``~/.config/jarvis/config.toml``, and ``JARVIS_*`` environment
-variables. Everything has a working default, so a bare ``jarvis`` run with only
-``ANTHROPIC_API_KEY`` set does the right thing.
+variables. Everything has a working default, so a bare ``jarvis`` run with no
+configuration at all does the right thing.
 """
 
 from __future__ import annotations
@@ -13,9 +13,9 @@ import tomllib
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 
-# Voice replies are read aloud, so the assistant should not be able to monologue
-# for thousands of tokens. Text mode raises this.
-VOICE_MAX_TOKENS = 2048
+# Replies are read aloud, so the assistant should not be able to monologue for
+# thousands of tokens.
+VOICE_REPLY_TOKENS = 1024
 
 CONFIG_PATH = Path(
     os.environ.get("JARVIS_CONFIG", "~/.config/jarvis/config.toml")
@@ -33,13 +33,17 @@ class Config:
     """Everything JARVIS needs to know about how it should behave."""
 
     # --- Model ---
-    model: str = "claude-opus-5"
-    # Voice wants latency over deliberation; `jarvis chat` bumps this to "high".
-    effort: str = "low"
-    max_tokens: int = VOICE_MAX_TOKENS
-    # Route around safety refusals to a fallback model instead of returning an
-    # apology. Server-side, so there is no client-side model list to maintain.
-    server_fallbacks: bool = True
+    # "ollama" runs the model on this machine. "openai" is any server speaking
+    # the OpenAI chat-completions protocol (llama.cpp, vLLM, LM Studio, ...).
+    backend: str = "ollama"
+    model: str = "llama3.1:8b"
+    base_url: str = ""
+    api_key_env: str = "OPENAI_API_KEY"
+    temperature: float = 0.6
+    context_tokens: int = 8192
+    max_reply_tokens: int = VOICE_REPLY_TOKENS
+    # Keep the model loaded between questions; reloading costs seconds a turn.
+    keep_alive: str = "10m"
 
     # --- Persona ---
     name: str = "JARVIS"
@@ -67,12 +71,17 @@ class Config:
 
     # --- Tools ---
     # off: no shell at all. confirm: ask before anything that writes.
-    # on: run whatever Claude asks for (use with care).
+    # on: run whatever the model asks for (use with care).
     shell: str = "confirm"
     shell_timeout: float = 60.0
     allow_web: bool = True
     # Directories the file tools may touch. Empty means the home directory.
     workspace: list[str] = field(default_factory=list)
+
+    # --- App ---
+    host: str = "127.0.0.1"
+    port: int = 8765
+    open_browser: bool = True
 
     # --- Storage ---
     state_dir: Path = field(default_factory=_default_state_dir)

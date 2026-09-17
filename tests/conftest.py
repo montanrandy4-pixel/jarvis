@@ -1,4 +1,4 @@
-"""A scripted stand-in for the Anthropic client, so the agent loop is testable."""
+"""Shared fixtures: a scripted backend so the agent loop is testable offline."""
 
 from __future__ import annotations
 
@@ -8,108 +8,60 @@ from pathlib import Path
 
 import pytest
 
-# The Anthropic SDK moved from httpx to httpx2 in 1.0; tests build error
-# responses with whichever one is installed.
-try:  # pragma: no cover - depends on the installed SDK major version
-    import httpx2 as http
-except ImportError:  # pragma: no cover
-    import httpx as http
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from jarvis.backends import Backend, BackendError, Completion, ToolCall  # noqa: E402
 from jarvis.config import Config  # noqa: E402
 from jarvis.memory import MemoryStore  # noqa: E402
 
 
 @dataclass
-class Block:
-    type: str
-    text: str = ""
-    id: str = ""
-    name: str = ""
-    input: dict | None = None
-
-
-@dataclass
-class FakeMessage:
-    content: list
-    stop_reason: str = "end_turn"
-    stop_details: object = None
-
-
-@dataclass
-class TextEvent:
-    text: str
-    type: str = "text"
-
-
-@dataclass
-class FakeStream:
-    message: FakeMessage
-    closed: bool = False
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        return False
-
-    def __iter__(self):
-        for block in self.message.content:
-            if block.type == "text":
-                # Stream in small pieces, the way the API does.
-                for i in range(0, len(block.text), 7):
-                    yield TextEvent(block.text[i : i + 7])
-
-    def get_final_message(self):
-        return self.message
-
-    def close(self):
-        self.closed = True
-
-
-@dataclass
-class FakeMessages:
-    """Replays a queue of scripted messages and records every request."""
+class FakeBackend(Backend):
+    """Replays scripted completions and records every request it was given."""
 
     script: list = field(default_factory=list)
     calls: list = field(default_factory=list)
     raise_once: Exception | None = None
+    name: str = "fake"
+    model: str = "fake-model"
+    ready: bool = True
 
-    def stream(self, **kwargs):
-        self.calls.append(kwargs)
+    def chat(self, messages, tools, *, on_text=None, cancel=None) -> Completion:
+        self.calls.append({"messages": list(messages), "tools": tools})
         if self.raise_once is not None:
             error, self.raise_once = self.raise_once, None
             raise error
         if not self.script:
             raise AssertionError("the agent made more requests than were scripted")
-        item = self.script.pop(0)
-        return FakeStream(item() if callable(item) else item)
+        completion = self.script.pop(0)
+        if cancel is not None and cancel.is_set():
+            return Completion(finish_reason="cancelled")
+        # Stream the text the way a real backend does, in small pieces.
+        for index in range(0, len(completion.text), 7):
+            if cancel is not None and cancel.is_set():
+                return Completion(finish_reason="cancelled")
+            if on_text:
+                on_text(completion.text[index : index + 7])
+        return completion
+
+    def health(self) -> tuple[bool, str]:
+        return self.ready, "fake backend"
+
+    def models(self) -> list[str]:
+        return ["fake-model"]
 
 
-class FakeClient:
-    def __init__(self, script=None):
-        self.beta = type("Beta", (), {})()
-        self.beta.messages = FakeMessages(script=list(script or []))
-
-    @property
-    def calls(self):
-        return self.beta.messages.calls
+def says(text: str, finish_reason: str = "stop") -> Completion:
+    return Completion(text=text, finish_reason=finish_reason)
 
 
-__all__ = ["http"]
-
-
-def text_message(text: str, stop_reason: str = "end_turn") -> FakeMessage:
-    return FakeMessage([Block("text", text=text)], stop_reason)
-
-
-def tool_message(name: str, args: dict, *, text: str = "", block_id="tu_1") -> FakeMessage:
-    content = []
-    if text:
-        content.append(Block("text", text=text))
-    content.append(Block("tool_use", id=block_id, name=name, input=args))
-    return FakeMessage(content, "tool_use")
+def calls_tool(name: str, arguments: dict, *, text: str = "", call_id="call_1",
+               raw: str = "") -> Completion:
+    return Completion(
+        text=text,
+        tool_calls=[ToolCall(id=call_id, name=name, arguments=arguments, raw=raw)],
+        finish_reason="tool_calls",
+    )
 
 
 @pytest.fixture
@@ -132,3 +84,6 @@ def workspace(config) -> Path:
     root = config.workspace_roots()[0]
     root.mkdir(parents=True, exist_ok=True)
     return root
+
+
+__all__ = ["BackendError", "Completion", "FakeBackend", "ToolCall", "calls_tool", "says"]

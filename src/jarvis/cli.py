@@ -5,62 +5,106 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from pathlib import Path
 
 from . import __version__
 from .agent import Agent
-from .config import VOICE_MAX_TOKENS, Config
+from .config import VOICE_REPLY_TOKENS, Config
 from .memory import MemoryStore
 from .tools import build_registry
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="jarvis",
-        description="A voice-driven AI assistant powered by Claude.",
+def _common_flags() -> argparse.ArgumentParser:
+    """Flags accepted both before and after the subcommand.
+
+    Defaults are suppressed so that `jarvis --model x app` is not undone by the
+    subparser re-parsing --model with a default of None.
+    """
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument(
+        "--backend",
+        choices=["ollama", "openai"],
+        default=argparse.SUPPRESS,
+        help="Where the model runs (default: ollama, on this machine).",
     )
-    parser.add_argument("--version", action="version", version=f"jarvis {__version__}")
-    parser.add_argument("--model", help="Model id (default: claude-opus-5).")
-    parser.add_argument(
-        "--effort",
-        choices=["low", "medium", "high", "xhigh", "max"],
-        help="How hard Claude thinks. Voice defaults to low for latency.",
+    common.add_argument(
+        "--model", default=argparse.SUPPRESS, help="Model name (default: llama3.1:8b)."
     )
-    parser.add_argument(
+    common.add_argument(
+        "--base-url",
+        dest="base_url",
+        default=argparse.SUPPRESS,
+        help="Model server URL, for a different port or a remote server.",
+    )
+    common.add_argument(
         "--shell",
         choices=["off", "confirm", "on"],
+        default=argparse.SUPPRESS,
         help="Shell access policy (default: confirm).",
     )
-    parser.add_argument(
-        "--no-web", action="store_true", help="Disable the web search tool."
+    common.add_argument(
+        "--no-web",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Disable the web search and page-reading tools.",
     )
-    parser.add_argument("--debug", action="store_true", help="Verbose logging.")
+    common.add_argument(
+        "--debug", action="store_true", default=argparse.SUPPRESS,
+        help="Verbose logging.",
+    )
+    return common
+
+
+def build_parser() -> argparse.ArgumentParser:
+    common = _common_flags()
+    parser = argparse.ArgumentParser(
+        prog="jarvis",
+        description="A voice-driven AI assistant that runs on your own machine.",
+        parents=[common],
+    )
+    parser.add_argument("--version", action="version", version=f"jarvis {__version__}")
 
     subs = parser.add_subparsers(dest="command")
 
-    listen = subs.add_parser("listen", help="Hands-free voice mode (default).")
-    listen.add_argument("--wake-word", help='Wake phrase (default: "hey jarvis").')
-    listen.add_argument("--stt-model", help="faster-whisper model (default: base.en).")
+    app = subs.add_parser("app", help="Open the JARVIS app (default).", parents=[common])
+    app.add_argument("--port", type=int, default=argparse.SUPPRESS,
+                     help="Port to serve on (default: 8765).")
+    app.add_argument("--host", default=argparse.SUPPRESS,
+                     help="Interface to bind (default: 127.0.0.1).")
+    app.add_argument("--no-browser", action="store_true", default=argparse.SUPPRESS,
+                     help="Do not open a browser window.")
+
+    listen = subs.add_parser(
+        "listen", help="Voice mode in the terminal, with no browser.", parents=[common]
+    )
+    listen.add_argument("--wake-word", default=argparse.SUPPRESS,
+                        help='Wake phrase (default: "hey jarvis").')
+    listen.add_argument("--stt-model", default=argparse.SUPPRESS,
+                        help="faster-whisper model (default: base.en).")
     listen.add_argument(
-        "--tts",
-        dest="tts_backend",
+        "--tts", dest="tts_backend", default=argparse.SUPPRESS,
         choices=["auto", "piper", "pyttsx3", "say", "espeak", "none"],
         help="Speech synthesis backend.",
     )
-    listen.add_argument("--voice", dest="voice_name", help="Backend-specific voice id.")
-    listen.add_argument(
-        "--no-barge-in",
-        action="store_true",
-        help="Do not let speech interrupt a reply (use on open speakers).",
+    listen.add_argument("--voice", dest="voice_name", default=argparse.SUPPRESS,
+                        help="Backend-specific voice id.")
+    listen.add_argument("--no-barge-in", action="store_true", default=argparse.SUPPRESS,
+                        help="Do not let speech interrupt a reply.")
+
+    subs.add_parser("chat", help="Talk to JARVIS by typing.", parents=[common])
+
+    ask = subs.add_parser(
+        "ask", help="Ask one question and print the answer.", parents=[common]
     )
-
-    subs.add_parser("chat", help="Talk to JARVIS by typing instead.")
-
-    ask = subs.add_parser("ask", help="Ask one question and print the answer.")
     ask.add_argument("question", nargs="+")
 
-    subs.add_parser("doctor", help="Check what voice mode can and cannot do here.")
+    subs.add_parser(
+        "doctor", help="Check what works on this machine.", parents=[common]
+    )
 
-    mem = subs.add_parser("memory", help="Inspect what JARVIS remembers.")
+    mem = subs.add_parser(
+        "memory", help="Inspect what JARVIS remembers.", parents=[common]
+    )
     mem.add_argument(
         "action", nargs="?", default="list", choices=["list", "add", "forget", "clear"]
     )
@@ -70,8 +114,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _config_from(args) -> Config:
     overrides = {
+        "backend": getattr(args, "backend", None),
         "model": getattr(args, "model", None),
-        "effort": getattr(args, "effort", None),
+        "base_url": getattr(args, "base_url", None),
+        "host": getattr(args, "host", None),
+        "port": getattr(args, "port", None),
         "shell": getattr(args, "shell", None),
         "wake_word": getattr(args, "wake_word", None),
         "stt_model": getattr(args, "stt_model", None),
@@ -82,6 +129,8 @@ def _config_from(args) -> Config:
         overrides["allow_web"] = False
     if getattr(args, "no_barge_in", False):
         overrides["barge_in"] = False
+    if getattr(args, "no_browser", False):
+        overrides["open_browser"] = False
     return Config.load(**overrides)
 
 
@@ -107,6 +156,12 @@ def _print_tool(label: str, result) -> None:
     print(f"  {mark} {label}", flush=True)
 
 
+def cmd_app(args) -> int:
+    from .server import serve
+
+    return serve(_config_from(args))
+
+
 def cmd_listen(args) -> int:
     from .voice import run_voice
 
@@ -116,11 +171,9 @@ def cmd_listen(args) -> int:
 
 def cmd_chat(args) -> int:
     config = _config_from(args)
-    # Typed conversation is not read aloud, so let it think and answer properly.
-    if getattr(args, "effort", None) is None:
-        config.effort = "high"
-    if config.max_tokens == VOICE_MAX_TOKENS:
-        config.max_tokens = 16_000
+    # A typed conversation is not read aloud, so it can afford longer answers.
+    if config.max_reply_tokens == VOICE_REPLY_TOKENS:
+        config.max_reply_tokens = 4096
 
     def confirm(_name: str, summary: str) -> bool:
         try:
@@ -130,7 +183,10 @@ def cmd_chat(args) -> int:
         return answer in {"y", "yes"}
 
     agent = _make_agent_factory(config, voice=False)(confirm)
-    print(f"JARVIS ({config.model}). Ctrl-C or /exit to leave, /help for commands.")
+    print(
+        f"JARVIS ({agent.backend.description}). "
+        "Ctrl-C or /exit to leave, /help for commands."
+    )
     while True:
         try:
             said = input("\nyou > ").strip()
@@ -146,8 +202,8 @@ def cmd_chat(args) -> int:
         print("\njarvis > ", end="", flush=True)
         turn = agent.reply(said, on_text=lambda chunk: print(chunk, end="", flush=True))
         print()
-        if turn.refusal or turn.error:
-            print(f"[{turn.refusal or turn.error}]")
+        if turn.error:
+            print(f"[{turn.error}]")
     path = agent.save_transcript()
     if path:
         print(f"Transcript saved to {path}")
@@ -184,8 +240,8 @@ def cmd_ask(args) -> int:
         on_text=lambda chunk: print(chunk, end="", flush=True),
     )
     print()
-    if turn.refusal or turn.error:
-        print(f"[{turn.refusal or turn.error}]", file=sys.stderr)
+    if turn.error:
+        print(f"[{turn.error}]", file=sys.stderr)
         return 1
     return 0
 
@@ -213,72 +269,62 @@ def cmd_memory(args) -> int:
 
 
 def cmd_doctor(args) -> int:
-    """Report what is installed, so a broken mic is obvious before you talk."""
-    import os
-    import shutil
-
+    """Report what works on this machine, so problems are obvious up front."""
     config = _config_from(args)
     print(f"jarvis {__version__}\n")
+    ok = True
 
-    def check(label: str, ok: bool, detail: str = "") -> bool:
-        mark = "\N{HEAVY CHECK MARK}" if ok else "\N{CROSS MARK}"
+    def check(label: str, passed: bool, detail: str = "") -> bool:
+        mark = "\N{HEAVY CHECK MARK}" if passed else "\N{CROSS MARK}"
         print(f"  {mark} {label}" + (f" -- {detail}" if detail else ""))
-        return ok
+        return passed
 
-    print("Credentials")
-    has_key = bool(os.environ.get("ANTHROPIC_API_KEY"))
-    profile = shutil.which("ant")
-    check(
-        "Anthropic credentials",
-        has_key or bool(profile),
-        "ANTHROPIC_API_KEY is set"
-        if has_key
-        else "no API key; `ant auth login` profile may still work"
-        if profile
-        else "set ANTHROPIC_API_KEY or run `ant auth login`",
-    )
+    print("Model")
+    from .backends import BackendError, make_backend
 
-    print("\nSpeech input")
+    try:
+        backend = make_backend(config)
+    except BackendError as exc:
+        check("backend", False, str(exc))
+        return 1
+    ready, detail = backend.health()
+    ok &= check(f"{backend.name}", ready, detail)
+    if ready:
+        installed = backend.models()
+        if installed:
+            print(f"      available: {', '.join(installed[:8])}")
+        supports = getattr(backend, "supports_tools", lambda: None)()
+        if supports is False:
+            ok &= check(
+                "tool calling",
+                False,
+                f"{backend.model} cannot call tools; try llama3.1:8b or qwen2.5:7b",
+            )
+        elif supports:
+            check("tool calling", True, "supported")
+
+    print("\nApp")
+    check("web assets", (Path(__file__).parent / "web" / "index.html").is_file())
+    print(f"      http://{config.host}:{config.port}/")
+
+    print("\nTerminal voice mode (optional -- the app uses your browser instead)")
     audio_ok = _importable("sounddevice") and _importable("numpy")
     check("microphone (sounddevice, numpy)", audio_ok, "pip install 'jarvis[voice]'")
-    check("voice activity (webrtcvad)", _importable("webrtcvad"), "energy fallback")
     check("recognition (faster-whisper)", _importable("faster_whisper"), config.stt_model)
     check("wake word (openwakeword)", _importable("openwakeword"), config.wake_word)
-    if audio_ok:
-        try:
-            import sounddevice as sd
-
-            default_in = sd.query_devices(kind="input")["name"]
-            check("input device", True, default_in)
-        except Exception as exc:
-            check("input device", False, str(exc))
-
-    print("\nSpeech output")
     from .audio.tts import make_speaker
 
     speaker = make_speaker(config)
-    check(
-        f"synthesis ({speaker.name})",
-        speaker.name != "print",
-        "no audio backend found; replies will be printed"
-        if speaker.name == "print"
-        else "",
-    )
+    check(f"synthesis ({speaker.name})", speaker.name != "print", "")
 
     print("\nSettings")
-    print(f"  model        {config.model} (effort {config.effort})")
     print(f"  shell        {config.shell}")
     print(f"  web search   {'on' if config.allow_web else 'off'}")
     print(f"  workspace    {', '.join(str(p) for p in config.workspace_roots())}")
     print(f"  state        {config.state_dir}")
-    ready = audio_ok and _importable("faster_whisper")
-    print(
-        "\nVoice mode is ready."
-        if ready
-        else "\nVoice mode needs more packages: pip install 'jarvis[voice]'"
-        "\nIn the meantime, `jarvis chat` works anywhere."
-    )
-    return 0 if ready else 1
+
+    print("\nReady." if ok else "\nNot ready -- see the failures above.")
+    return 0 if ok else 1
 
 
 def _importable(module: str) -> bool:
@@ -293,11 +339,12 @@ def _importable(module: str) -> bool:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     logging.basicConfig(
-        level=logging.DEBUG if args.debug else logging.WARNING,
+        level=logging.DEBUG if getattr(args, "debug", False) else logging.WARNING,
         format="%(levelname)s %(name)s: %(message)s",
     )
     handlers = {
-        None: cmd_listen,  # Bare `jarvis` starts listening.
+        None: cmd_app,  # Bare `jarvis` opens the app.
+        "app": cmd_app,
         "listen": cmd_listen,
         "chat": cmd_chat,
         "ask": cmd_ask,
@@ -305,7 +352,7 @@ def main(argv: list[str] | None = None) -> int:
         "doctor": cmd_doctor,
     }
     try:
-        return handlers[args.command](args)
+        return handlers[getattr(args, "command", None)](args)
     except KeyboardInterrupt:
         print()
         return 130

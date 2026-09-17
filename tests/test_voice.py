@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 
 import pytest
-from conftest import FakeClient, text_message
+from conftest import FakeBackend, says
 
 from jarvis.agent import Agent
 from jarvis.audio.tts import PrintSpeaker
@@ -28,7 +28,7 @@ class RecordingSpeaker(PrintSpeaker):
 @pytest.fixture
 def session(config, memory, monkeypatch):
     agent = Agent(
-        config, Registry(), memory, client=FakeClient([text_message("Very good.")])
+        config, Registry(), memory, backend=FakeBackend(script=[says("Very good.")])
     )
     speaker = RecordingSpeaker()
     session = VoiceSession(config, agent, transcriber=object(), speaker=speaker)
@@ -62,7 +62,7 @@ class TestLocalCommands:
     @pytest.mark.parametrize(
         "said", ["what time is it", "set a timer", "stop the deployment"]
     )
-    def test_real_requests_are_passed_to_claude(self, session, said):
+    def test_real_requests_are_passed_to_the_model(self, session, said):
         assert session._handle_local(said) is None
 
     def test_normalise_strips_punctuation_and_case(self):
@@ -93,8 +93,8 @@ class TestSpokenConfirmation:
 
 class TestReplying:
     def test_a_reply_is_spoken_sentence_by_sentence(self, session):
-        session.agent.client.beta.messages.script = [
-            text_message("The build passed. Nothing needs your attention.")
+        session.agent.backend.script = [
+            says("The build passed. Nothing needs your attention.")
         ]
 
         session._respond("how did the build go")

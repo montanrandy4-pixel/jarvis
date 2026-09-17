@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<title>JARVIS</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='34' fill='none' stroke='%2364e9ff' stroke-width='8'/><circle cx='50' cy='50' r='12' fill='%2364e9ff'/></svg>">
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<div class="app">
+  <header class="bar">
+    <div class="identity">
+      <span class="mark" aria-hidden="true"></span>
+      <h1 id="assistant-name">JARVIS</h1>
+    </div>
+    <div class="status">
+      <span id="status-dot" class="dot" data-state="unknown"></span>
+      <span id="status-text">connecting…</span>
+    </div>
+    <div class="bar-actions">
+      <button id="voice-toggle" class="ghost" aria-pressed="true"
+              title="Speak replies aloud">Voice on</button>
+      <button id="panel-toggle" class="ghost" aria-expanded="false"
+              aria-controls="panel">Details</button>
+    </div>
+  </header>
+
+  <main class="stage">
+    <div class="orb-wrap">
+      <div id="orb" class="orb" data-state="idle">
+        <span class="ring r1"></span><span class="ring r2"></span>
+        <span class="ring r3"></span><span class="core"></span>
+      </div>
+      <p id="orb-caption" class="caption">Tap the orb, or just type.</p>
+    </div>
+
+    <ol id="transcript" class="transcript" aria-live="polite" aria-label="Conversation"></ol>
+  </main>
+
+  <div id="confirm-slot" class="confirm-slot" hidden></div>
+
+  <form id="composer" class="composer" autocomplete="off">
+    <button type="button" id="mic" class="mic" aria-pressed="false"
+            title="Hold a conversation by voice">
+      <svg viewBox="0 0 24 24" aria-hidden="true" width="22" height="22">
+        <path d="M12 15a3.5 3.5 0 0 0 3.5-3.5v-5a3.5 3.5 0 1 0-7 0v5A3.5 3.5 0 0 0 12 15Z"/>
+        <path d="M5.5 11v.5a6.5 6.5 0 0 0 13 0V11M12 18.5V21"
+              fill="none" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round"/>
+      </svg>
+      <span class="sr-only">Talk to JARVIS</span>
+    </button>
+    <input id="input" type="text" placeholder="Ask JARVIS…" aria-label="Message">
+    <button type="submit" id="send" class="send">Send</button>
+  </form>
+</div>
+
+<aside id="panel" class="panel" hidden>
+  <section>
+    <h2>Model</h2>
+    <p id="panel-model" class="muted">—</p>
+    <p id="panel-detail" class="muted small">—</p>
+  </section>
+  <section>
+    <h2>Tools</h2>
+    <ul id="panel-tools" class="chips"></ul>
+  </section>
+  <section>
+    <h2>Memory</h2>
+    <ul id="panel-memory" class="memories"></ul>
+  </section>
+  <section>
+    <h2>Voice</h2>
+    <label class="row">
+      <input type="checkbox" id="wake-toggle">
+      <span>Listen for “<span id="wake-word">hey jarvis</span>”</span>
+    </label>
+    <p id="voice-support" class="muted small"></p>
+  </section>
+  <section>
+    <button id="reset" class="ghost danger">Clear conversation</button>
+  </section>
+</aside>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

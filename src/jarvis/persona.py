@@ -1,4 +1,4 @@
-"""The system prompt that makes Claude behave like JARVIS.
+"""The system prompt that makes the model behave like JARVIS.
 
 Split in two on purpose: :func:`persona_prompt` is byte-stable across a session
 so it can sit behind a prompt-cache breakpoint, while :func:`context_prompt`

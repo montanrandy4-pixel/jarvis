@@ -93,11 +93,13 @@ class TestRegistry:
 
         assert result.is_error and "ZeroDivisionError" in result.content
 
-    def test_specs_are_stable_for_prompt_caching(self, config, memory):
+    def test_specs_are_function_definitions_in_a_stable_order(self, config, memory):
         first = build_registry(config, memory).specs()
         second = build_registry(config, memory).specs()
 
-        assert [t["name"] for t in first] == sorted(t["name"] for t in first)
+        names = [t["function"]["name"] for t in first]
+        assert all(t["type"] == "function" for t in first)
+        assert names == sorted(names)
         assert first == second
 
 

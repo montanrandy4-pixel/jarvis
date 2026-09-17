@@ -168,7 +168,7 @@ class VoiceSession:
     def _handle_local(self, said: str) -> str | None:
         """Deal with the utterances that need no model call.
 
-        Returns "sleep", "quit", "handled", or None to pass it to Claude.
+        Returns "sleep", "quit", "handled", or None to pass it to the model.
         """
         text = normalise(said)
         if text in HUSH_WORDS:
@@ -197,7 +197,7 @@ class VoiceSession:
             return  # The user cut in; go straight back to listening.
 
         self.speech.flush()
-        message = turn.refusal or turn.error
+        message = turn.error
         if message and not turn.text:
             self.speech.say_now(message)
         elif message:

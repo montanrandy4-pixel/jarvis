@@ -1,126 +1,145 @@
 # JARVIS
 
-A voice-driven AI assistant powered by Claude. Say the wake word, ask for
-something, and it answers out loud — running tools on your machine when the
-answer requires actually looking.
+A voice assistant that runs on your own machine. Open the app, talk to it, and
+it answers out loud — running tools on your computer when the answer needs
+actually looking rather than guessing.
 
-```
-$ jarvis
-Listening. Say "hey jarvis" to wake me.
-🔊  Good evening, sir. I'm listening.
+No API key. No cloud model. Nothing to sign up for.
 
-> hey jarvis, how much disk have I got left
-🔊  About 47 gigabytes free of 256, so you're fine for now.
-
-> set a timer for ten minutes for the pasta
-🔊  Timer set for the pasta, going off in 10 minutes.
+```bash
+ollama pull llama3.1:8b        # the brain
+pip install -e .               # no dependencies beyond Python
+jarvis                         # opens the app
 ```
 
-Speech recognition and the wake word run locally. Only the transcribed text is
-sent to the API.
+![the app](docs/screenshot.png)
+
+## What it is
+
+A local web app (`jarvis`) with a Python backend. Type or talk; replies stream
+back and are spoken as they arrive. The model runs in Ollama alongside it, so
+the whole thing works on a plane.
+
+| Piece | What it does |
+|---|---|
+| App at `127.0.0.1:8765` | Chat UI, voice in and out, tool activity, memory |
+| Model backend | Ollama by default; any OpenAI-compatible server instead |
+| Tools | Shell, files, timers, memory, system status, web search |
+| Memory | Durable facts in a JSON file you can read and edit |
 
 ## Install
 
 ```bash
+# 1. A model that can call tools
+curl -fsSL https://ollama.com/install.sh | sh     # if you don't have it
+ollama pull llama3.1:8b                           # or qwen2.5:7b, mistral-nemo
+
+# 2. JARVIS
 git clone https://github.com/montanrandy4-pixel/jarvis && cd jarvis
-pip install -e '.[voice]'      # or just `pip install -e .` for typed chat only
-export ANTHROPIC_API_KEY=sk-ant-...
-jarvis doctor                  # says what works on this machine
-jarvis                         # start listening
+pip install -e .
+
+# 3. Check and run
+jarvis doctor
+jarvis
 ```
 
-`jarvis doctor` is the first thing to run: it checks credentials, the
-microphone, the speech engines and the wake-word model, and tells you exactly
-what is missing.
+`jarvis doctor` verifies the model server is up, the model is pulled, and that
+it supports tool calling — it names the exact command to fix whatever is
+missing.
+
+### Using a different server
+
+```bash
+jarvis --backend openai --base-url http://localhost:8080/v1 --model local-model
+jarvis --backend openai --base-url https://api.groq.com/openai/v1 --model llama-3.3-70b
+```
+
+Anything speaking the OpenAI chat-completions protocol works: llama.cpp, vLLM,
+LM Studio, text-generation-webui, or a hosted service. Set the key in the
+environment variable named by `api_key_env` (default `OPENAI_API_KEY`).
 
 ## Commands
 
 | Command | What it does |
 |---|---|
-| `jarvis` / `jarvis listen` | Hands-free voice mode |
-| `jarvis chat` | Type instead of talking (works with no audio hardware) |
+| `jarvis` / `jarvis app` | Open the app |
+| `jarvis chat` | Talk to it in the terminal |
 | `jarvis ask "..."` | One question, answer to stdout |
-| `jarvis memory` | Show, add or delete what JARVIS remembers |
+| `jarvis listen` | Hands-free voice in the terminal, no browser |
+| `jarvis memory` | Show, add or delete what it remembers |
 | `jarvis doctor` | Check the setup |
 
-Useful flags: `--model`, `--effort low|medium|high|xhigh|max`,
-`--shell off|confirm|on`, `--no-web`, `--wake-word`, `--tts`, `--no-barge-in`.
+Flags work before or after the subcommand: `--backend`, `--model`, `--base-url`,
+`--shell off|confirm|on`, `--no-web`, `--port`, `--no-browser`, `--debug`.
 
-## How voice mode works
+## Talking to it
 
-```
-mic ──► wake word ──► record until silence ──► whisper ──► Claude ──► sentences ──► speaker
-        (local)        (VAD)                   (local)      (+tools)    (streamed)
-```
+The app uses your browser's speech engines, so voice needs no extra install.
 
-A few details that matter in practice:
+- **Tap the orb** (or the microphone) and speak. Tap again while it is talking
+  to interrupt.
+- **Hands-free**: turn on *Listen for "hey jarvis"* in Details, and it waits for
+  the wake word. Say "hey jarvis, what's on my disk" in one breath and it skips
+  straight to the question.
+- **Replies are spoken as they stream**, sentence by sentence, so it starts
+  talking before it has finished thinking.
+- **Reasoning is hidden.** Models that emit `<think>` blocks have them stripped
+  before anything is shown or spoken.
 
-- **Replies start before they finish.** Text is cut at sentence boundaries as it
-  streams from the model, so the first sentence is spoken while the rest is
-  still being generated.
-- **Barge-in.** Talk over a reply and it stops mid-sentence. Use headphones, or
-  pass `--no-barge-in` on open speakers — without echo cancellation, JARVIS can
-  otherwise hear itself and interrupt its own answer.
-- **Follow-ups need no wake word.** After a reply it keeps listening for about
-  eight seconds (`followup_window`).
-- **Some things never reach the API.** "stop", "never mind" and "goodbye" are
-  handled locally, so interrupting is instant.
-- **Timers announce themselves** out loud whenever they fire.
+Speech recognition in Chrome and Edge goes through the browser's own online
+service. If you want speech to stay local too, `jarvis listen` runs the wake
+word and Whisper on your machine instead — `pip install -e '.[voice]'`.
 
 ## Tools
 
 | Tool | Notes |
 |---|---|
-| `run_shell` | Gated by the `shell` setting (see below) |
+| `run_shell` | Gated by the `shell` setting (below) |
 | `read_file`, `write_file`, `list_directory` | Confined to the workspace roots |
-| `remember`, `recall`, `forget` | Durable facts in `memory.json` |
-| `set_timer`, `list_timers`, `cancel_timer` | Spoken when they fire |
+| `web_search`, `fetch_url` | DuckDuckGo, no API key |
+| `remember`, `recall`, `forget` | Durable facts |
+| `set_timer`, `list_timers`, `cancel_timer` | Announced out loud when they fire |
 | `system_status` | Uptime, load, memory, disk, battery |
-| `web_search` | Server-side; disable with `--no-web` |
 
 ### Safety
 
-The assistant can run commands on your machine, so two gates are on by default:
+JARVIS can run commands on your machine, so two gates are on by default:
 
-- **`shell = confirm`** — read-only commands (`ls`, `df`, `git status`, …) run
-  freely; anything that might change something is read back to you and needs a
-  spoken "yes". The classifier errs toward asking: anything it does not
-  recognise, and anything with a pipe, redirect or substitution, counts as a
-  write. `shell = off` removes the tool; `shell = on` stops asking.
-- **Workspace confinement** — the file tools only touch `workspace` (your home
-  directory by default), and paths are resolved before the check, so `../..`
-  cannot climb out.
+- **`shell = confirm`** — read-only commands (`ls`, `df`, `git status`) run
+  freely; anything that might change something shows a permission card with the
+  exact command and waits for you. The classifier errs toward asking: unknown
+  commands, pipes, redirects and substitutions all count as writes.
+  `shell = off` removes the tool entirely; `shell = on` stops asking.
+- **Workspace confinement** — file tools only touch `workspace` (your home
+  directory by default), resolved before the check so `../..` cannot climb out.
 
-Memory, transcripts and settings live under `~/.local/state/jarvis`.
+The app binds to `127.0.0.1` and holds one conversation. Memory, transcripts and
+settings live in `~/.local/state/jarvis`.
 
 ## Configuration
 
-Environment variables (`JARVIS_MODEL`, `JARVIS_WAKE_WORD`, …) or
-`~/.config/jarvis/config.toml`:
+`JARVIS_*` environment variables or `~/.config/jarvis/config.toml`:
 
 ```toml
 [jarvis]
-model = "claude-opus-5"
-effort = "low"              # voice trades depth for latency; chat uses high
-wake_word = "hey jarvis"
-stt_model = "small.en"      # bigger whisper model, better with accents
-tts_backend = "piper"
-voice_name = "/path/to/en_GB-alan-medium.onnx"
+backend = "ollama"
+model = "llama3.1:8b"
+temperature = 0.6
+context_tokens = 8192
 shell = "confirm"
 workspace = ["~/projects", "~/Documents"]
 address_user_as = "sir"
+port = 8765
 ```
 
 See `.env.example` for the full list.
 
-### Speech engines
+### Choosing a model
 
-Picked automatically, best first. **Input:** openWakeWord (it ships a trained
-"hey jarvis" model) for waking, webrtcvad for endpointing, faster-whisper for
-recognition — each degrades to a working fallback if absent, down to push-to-talk
-and an energy-based voice detector. **Output:** piper (neural, best) → pyttsx3 →
-macOS `say` → espeak-ng → printing to the terminal. With no audio stack at all,
-`jarvis chat` still works everywhere.
+It must support tool calling — `jarvis doctor` checks and says so. `llama3.1:8b`
+is a good default; `qwen2.5:7b` is faster on modest hardware; a 3B model is
+quick but will misuse tools. Bigger models answer better and speak later: for a
+voice assistant, latency is most of the experience.
 
 ## Adding a tool
 
@@ -147,48 +166,47 @@ Tool(
 ```
 
 Register it in `jarvis/tools/__init__.py:build_registry`. Inputs are validated
-against the schema before the handler runs, and a handler that raises becomes an
+against the schema before the handler runs — small models emit malformed
+arguments often enough that this matters — and a handler that raises becomes an
 error the model can recover from rather than a crash.
 
 ## Development
 
 ```bash
 pip install -e '.[dev]'
-pytest                    # 128 tests, no API key or microphone required
+pytest                    # 166 tests, no model or microphone required
 ```
 
-The agent loop is tested against a scripted fake client (`tests/conftest.py`),
-which covers tool round-trips, refusals, truncated tool inputs, cancellation and
-the prompt-cache layout.
+The agent loop runs against a scripted fake backend; the Ollama and
+OpenAI-compatible clients run against a stub HTTP server that replays real
+protocol traffic; the app's endpoints are tested over real HTTP, including the
+permission round trip.
 
 ### Layout
 
 ```
 src/jarvis/
-  agent.py      streaming loop, tool execution, error handling
-  persona.py    system prompt (stable half cached, volatile half not)
+  server.py     the app: HTTP, SSE streaming, permission prompts
+  web/          the UI (no build step, no CDN)
+  agent.py      conversation loop, tool execution, history trimming
+  backends/     ollama + openai-compatible clients, built on urllib
+  persona.py    system prompt
   memory.py     durable facts
-  config.py     defaults → TOML → environment → flags
-  voice.py      wake / listen / think / speak
-  cli.py        commands
-  audio/        mic + VAD, whisper, wake word, speech synthesis
   tools/        registry, validation, and the built-in tools
+  voice.py      terminal voice mode (local wake word + whisper)
+  audio/        mic, VAD, whisper, speech synthesis
 ```
-
-Notes on the API usage: adaptive thinking with a low effort setting (voice
-latency), prompt caching with the persona behind a cache breakpoint and the
-clock after it, server-side context editing so long sessions do not grow without
-bound, and server-side refusal fallbacks. Any of those the account does not
-support is dropped on the first rejection and the request retried, rather than
-failing the turn.
 
 ## Limitations
 
-- No acoustic echo cancellation — headphones, or `--no-barge-in`.
+- Small local models call tools less reliably than frontier ones. If it ignores
+  a tool, try `llama3.1:8b` or a larger model before assuming a bug.
+- Browser speech recognition is not local (see above), and Safari and Firefox
+  support it poorly. Typing always works.
+- Web search scrapes DuckDuckGo's HTML, which can break without warning; it
+  fails as a tool error rather than a crash.
 - The shell classifier is a heuristic, not a sandbox. `shell = off` is the only
   hard guarantee.
-- Whisper occasionally hallucinates text from silence; the obvious artefacts are
-  filtered, but a very noisy room will still produce the odd phantom request.
 
 ## License
 

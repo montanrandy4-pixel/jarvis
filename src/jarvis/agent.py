@@ -1,32 +1,28 @@
-"""The conversation loop: Claude, the tools, and the history between them."""
+"""The conversation loop: a model, the tools, and the history between them.
+
+Nothing here knows which model server is on the other end -- see
+``jarvis.backends``.
+"""
 
 from __future__ import annotations
 
 import json
 import logging
-import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import anthropic
-
+from .backends import Backend, BackendError, make_backend
 from .persona import context_prompt, persona_prompt
 from .tools import Registry
 
 log = logging.getLogger("jarvis.agent")
 
-# Server-side features we ask for but can live without. If the account or SDK
-# does not support one, the agent drops it and carries on rather than dying.
-FALLBACK_BETA = "server-side-fallback-2026-07-01"
-CONTEXT_BETA = "context-management-2025-06-27"
-
-# Long voice sessions accumulate tool output nobody will refer to again; let the
-# server clear the oldest of it instead of growing the prompt forever.
-CLEAR_TOOL_USES = {"type": "clear_tool_uses_20250919"}
-
-MAX_TOOL_ITERATIONS = 12
+MAX_TOOL_ITERATIONS = 8
+# Rough bytes-per-token for trimming history. Deliberately pessimistic: running
+# out of context mid-conversation is worse than trimming a turn early.
+CHARS_PER_TOKEN = 3.2
 
 
 @dataclass
@@ -36,12 +32,11 @@ class Turn:
     text: str = ""
     stop_reason: str = ""
     tool_calls: list[str] = field(default_factory=list)
-    refusal: str = ""
     error: str = ""
 
     @property
     def ok(self) -> bool:
-        return not self.error and not self.refusal
+        return not self.error
 
 
 class Agent:
@@ -54,163 +49,107 @@ class Agent:
         memory,
         *,
         voice: bool = True,
-        client=None,
+        backend: Backend | None = None,
         on_tool=None,
     ):
         self.config = config
         self.registry = registry
         self.memory = memory
         self.voice = voice
-        self.client = client or anthropic.Anthropic()
-        self.on_tool = on_tool  # Called with a human-readable line per tool run.
+        self.backend = backend or make_backend(config)
+        self.on_tool = on_tool  # Called with (label, ToolResult) per tool run.
         self.messages: list[dict] = []
         self.started_at = time.time()
-
         self._persona = persona_prompt(
             name=config.name,
             address_as=config.address_user_as,
             user_name=config.user_name,
             voice=voice,
         )
-        # Dropped on first rejection, so one unsupported beta cannot wedge the
-        # assistant on every later turn.
-        self._use_fallbacks = bool(config.server_fallbacks)
-        self._use_context_editing = True
 
     # -- prompt assembly -------------------------------------------------
 
-    def _system(self) -> list[dict]:
-        """Stable persona first (cached), volatile context after the breakpoint."""
-        return [
-            {
-                "type": "text",
-                "text": self._persona,
-                "cache_control": {"type": "ephemeral"},
-            },
-            {"type": "text", "text": context_prompt(memories=self.memory.texts())},
-        ]
+    def _system_message(self) -> dict:
+        """Persona plus the context that changes every turn."""
+        content = self._persona + "\n\n" + context_prompt(
+            memories=self.memory.texts()
+        )
+        return {"role": "system", "content": content}
 
-    def _tools(self) -> list[dict]:
-        specs = self.registry.specs()
-        if self.config.allow_web:
-            specs.append(
-                {
-                    "type": "web_search_20260209",
-                    "name": "web_search",
-                    "max_uses": 5,
-                }
-            )
-        return specs
+    def _request_messages(self) -> list[dict]:
+        return [self._system_message(), *self._trimmed()]
 
-    def _request_kwargs(self) -> dict:
-        kwargs: dict = {
-            "model": self.config.model,
-            "max_tokens": self.config.max_tokens,
-            "system": self._system(),
-            "messages": self.messages,
-            "tools": self._tools(),
-            "thinking": {"type": "adaptive"},
-            "output_config": {"effort": self.config.effort},
-        }
-        betas: list[str] = []
-        if self._use_fallbacks:
-            betas.append(FALLBACK_BETA)
-            kwargs["fallbacks"] = "default"
-        if self._use_context_editing:
-            betas.append(CONTEXT_BETA)
-            kwargs["context_management"] = {"edits": [CLEAR_TOOL_USES]}
-        if betas:
-            kwargs["betas"] = betas
-        return kwargs
+    def _trimmed(self) -> list[dict]:
+        """Drop the oldest exchanges that no longer fit the context window."""
+        budget = int(
+            (self.config.context_tokens - self.config.max_reply_tokens)
+            * CHARS_PER_TOKEN
+        )
+        budget -= len(self._persona) + 600  # Room for the system message.
+        if budget <= 0:
+            return self.messages[-2:]
 
-    def _degrade(self, exc: Exception) -> bool:
-        """Turn off whichever optional feature the API just rejected."""
-        detail = str(exc).lower()
-        if self._use_fallbacks and (
-            "fallback" in detail or FALLBACK_BETA in detail
-        ):
-            log.warning("server-side fallbacks unavailable; continuing without")
-            self._use_fallbacks = False
-            return True
-        if self._use_context_editing and (
-            "context_management" in detail or "context-management" in detail
-        ):
-            log.warning("context editing unavailable; continuing without")
-            self._use_context_editing = False
-            return True
-        # An unrecognised 400 might still be one of ours; drop both once.
-        if self._use_fallbacks or self._use_context_editing:
-            log.warning("request rejected (%s); retrying without beta features", exc)
-            self._use_fallbacks = False
-            self._use_context_editing = False
-            return True
-        return False
+        total = sum(_size(m) for m in self.messages)
+        if total <= budget:
+            return self.messages
+
+        # Drop whole exchanges from the front. A tool result whose call has been
+        # dropped confuses every backend, so cut at the next user message.
+        start = 0
+        while start < len(self.messages) and total > budget:
+            total -= _size(self.messages[start])
+            start += 1
+            while (
+                start < len(self.messages)
+                and self.messages[start]["role"] != "user"
+            ):
+                total -= _size(self.messages[start])
+                start += 1
+        log.debug("trimmed %d old messages to fit the context window", start)
+        return self.messages[start:]
 
     # -- the turn --------------------------------------------------------
 
     def reply(self, user_text: str, on_text=None, cancel=None) -> Turn:
-        """Run one full turn, including any tool round-trips it needs.
-
-        ``on_text`` receives text as it streams, so a voice front end can start
-        speaking the first sentence while the rest is still arriving.
-        ``cancel`` is an Event; setting it stops generation (barge-in).
-        """
+        """Run one full turn, including any tool round-trips it needs."""
         self.messages.append({"role": "user", "content": user_text})
         turn = Turn()
         spoken: list[str] = []
 
+        def collect(chunk: str) -> None:
+            spoken.append(chunk)
+            if on_text:
+                on_text(chunk)
+
         for _ in range(MAX_TOOL_ITERATIONS):
             try:
-                message = self._stream_once(on_text, cancel, spoken)
-            except anthropic.APIStatusError as exc:
-                if exc.status_code == 400 and self._degrade(exc):
-                    continue
-                turn.error = _friendly_error(exc)
-                return turn
-            except anthropic.APIConnectionError:
-                turn.error = "I can't reach the network just now."
-                return turn
-            except TypeError as exc:
-                # The SDK raises this when it cannot resolve any credential.
-                if "authentication" not in str(exc).lower():
-                    raise
-                turn.error = (
-                    "I have no API credentials. Set ANTHROPIC_API_KEY or run "
-                    "`ant auth login`."
+                completion = self.backend.chat(
+                    self._request_messages(),
+                    self.registry.specs(),
+                    on_text=collect,
+                    cancel=cancel,
                 )
+            except BackendError as exc:
+                turn.error = str(exc)
+                turn.text = "".join(spoken)
                 return turn
 
-            if message is None:  # Cancelled mid-stream by barge-in.
+            if cancel is not None and cancel.is_set():
                 turn.stop_reason = "cancelled"
                 turn.text = "".join(spoken)
                 return turn
 
-            self.messages.append(
-                {"role": "assistant", "content": message.content}
-            )
-            turn.stop_reason = message.stop_reason or ""
+            self.messages.append(_assistant_message(completion))
+            turn.stop_reason = completion.finish_reason
 
-            if message.stop_reason == "refusal":
-                details = getattr(message, "stop_details", None)
-                turn.refusal = getattr(details, "explanation", "") or (
-                    "I'm not able to help with that one."
-                )
-                turn.text = "".join(spoken)
-                return turn
+            if completion.tool_calls:
+                self.messages.extend(self._run_tools(completion.tool_calls, turn))
+                continue
 
-            if message.stop_reason == "max_tokens":
+            if completion.finish_reason == "length":
                 turn.text = "".join(spoken)
                 turn.error = "I ran out of room mid-answer."
                 return turn
-
-            if message.stop_reason == "pause_turn":
-                # A server-side tool wants to keep going; send the turn back.
-                continue
-
-            if message.stop_reason == "tool_use":
-                results = self._run_tools(message, turn)
-                self.messages.append({"role": "user", "content": results})
-                continue
 
             turn.text = "".join(spoken)
             return turn
@@ -219,41 +158,19 @@ class Agent:
         turn.error = "I got stuck in a loop of tool calls and stopped."
         return turn
 
-    def _stream_once(self, on_text, cancel, spoken: list[str]):
-        """One streaming request. Returns None if cancelled part-way."""
-        kwargs = self._request_kwargs()
-        with self.client.beta.messages.stream(**kwargs) as stream:
-            for event in stream:
-                if cancel is not None and cancel.is_set():
-                    stream.close()
-                    return None
-                if event.type == "text":
-                    chunk = event.text
-                    spoken.append(chunk)
-                    if on_text:
-                        on_text(chunk)
-            return stream.get_final_message()
+    def _run_tools(self, calls, turn: Turn) -> list[dict]:
+        """Execute the model's tool calls, concurrently where there are several."""
 
-    def _run_tools(self, message, turn: Turn) -> list[dict]:
-        """Execute every tool_use block in the message, concurrently."""
-        calls = [
-            block
-            for block in message.content
-            if getattr(block, "type", "") == "tool_use"
-            and block.name in self.registry
-        ]
-        if not calls:
-            # A tool_use stop with no client tool means a server tool ran; there
-            # is nothing for us to return.
-            return [
-                {
-                    "type": "text",
-                    "text": "(no client-side tool results)",
-                }
-            ]
-
-        def execute(block):
-            return block, self.registry.run(block.name, block.input)
+        def execute(call):
+            if call.name not in self.registry:
+                known = ", ".join(sorted(self.registry.tools))
+                return call, _error(f"No tool named {call.name!r}. Available: {known}")
+            if call.raw and not call.arguments:
+                return call, _error(
+                    f"Could not parse the arguments for {call.name}: {call.raw[:200]}. "
+                    "Send valid JSON."
+                )
+            return call, self.registry.run(call.name, call.arguments)
 
         if len(calls) == 1:
             outcomes = [execute(calls[0])]
@@ -261,23 +178,24 @@ class Agent:
             with ThreadPoolExecutor(max_workers=min(4, len(calls))) as pool:
                 outcomes = list(pool.map(execute, calls))
 
-        results = []
-        for block, result in outcomes:
-            label = result.display or self.registry.tools[block.name].describe_call(
-                block.input if isinstance(block.input, dict) else {}
+        messages = []
+        for call, result in outcomes:
+            tool = self.registry.tools.get(call.name)
+            label = result.display or (
+                tool.describe_call(call.arguments) if tool else call.name
             )
             turn.tool_calls.append(label)
             if self.on_tool:
                 self.on_tool(label, result)
-            results.append(
+            messages.append(
                 {
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
+                    "role": "tool",
+                    "tool_call_id": call.id,
+                    "name": call.name,
                     "content": result.content,
-                    "is_error": result.is_error,
                 }
             )
-        return results
+        return messages
 
     # -- housekeeping ----------------------------------------------------
 
@@ -286,7 +204,6 @@ class Agent:
         self.started_at = time.time()
 
     def save_transcript(self, directory: Path | None = None) -> Path | None:
-        """Write the conversation to disk so it can be read back later."""
         if not self.messages:
             return None
         directory = Path(directory or self.config.transcript_dir)
@@ -295,7 +212,11 @@ class Agent:
         path = directory / f"{stamp}.json"
         path.write_text(
             json.dumps(
-                {"model": self.config.model, "messages": self.messages},
+                {
+                    "backend": self.backend.name,
+                    "model": self.backend.model,
+                    "messages": self.messages,
+                },
                 indent=2,
                 default=str,
             )
@@ -303,14 +224,21 @@ class Agent:
         return path
 
 
-def _friendly_error(exc: anthropic.APIStatusError) -> str:
-    """Something a voice assistant can say out loud without embarrassment."""
-    if isinstance(exc, anthropic.AuthenticationError):
-        return "My API key is not being accepted."
-    if isinstance(exc, anthropic.RateLimitError):
-        return "I'm being rate limited. Give me a moment."
-    if isinstance(exc, anthropic.NotFoundError):
-        return "That model isn't available on this account."
-    if exc.status_code >= 500:
-        return "The API is having trouble. Try again shortly."
-    return f"The request failed: {exc}"
+def _assistant_message(completion) -> dict:
+    message: dict = {"role": "assistant", "content": completion.text}
+    if completion.tool_calls:
+        message["tool_calls"] = [
+            {"id": c.id, "name": c.name, "arguments": c.arguments}
+            for c in completion.tool_calls
+        ]
+    return message
+
+
+def _error(text: str):
+    from .tools import ToolResult
+
+    return ToolResult(text, is_error=True)
+
+
+def _size(message: dict) -> int:
+    return len(json.dumps(message, default=str))
