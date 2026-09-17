@@ -23,6 +23,10 @@ class FakeShopify:
         self.orders: list[dict] = []
         self.media: dict[str, list] = {}
         self.inventory: dict[tuple[str, str], int] = {}
+        self.collections: dict[str, dict] = {}
+        self.pages: dict[str, dict] = {}
+        self.policies: dict[str, dict] = {}
+        self.menus: dict[str, dict] = {}
         self.activated: set[tuple[str, str]] = set()
         self.calls: list[str] = []
         self.documents: list[dict] = []
@@ -293,6 +297,91 @@ class FakeShopify:
             "inventoryAdjustmentGroup": {"createdAt": "2026-09-17T00:00:00Z",
                                          "reason": "correction"},
             "userErrors": []}}
+
+    # -- store structure --------------------------------------------------
+
+    def _op_collections(self, variables):
+        return {"collections": _page(list(self.collections.values()), variables)}
+
+    def _op_collectionCreate(self, variables):
+        data = variables["input"]
+        handle = data.get("handle", "")
+        if handle in self.collections:
+            return {"collectionCreate": {"collection": None, "userErrors": [
+                {"field": ["handle"], "message": "Handle is already in use"}]}}
+        node = {"id": self.gid("Collection"), "handle": handle,
+                "title": data.get("title", ""),
+                "descriptionHtml": data.get("descriptionHtml", ""),
+                "ruleSet": data.get("ruleSet")}
+        self.collections[handle] = node
+        return {"collectionCreate": {"collection": node, "userErrors": []}}
+
+    def _op_collectionUpdate(self, variables):
+        data = variables["input"]
+        for node in self.collections.values():
+            if node["id"] == data.get("id"):
+                node.update({k: v for k, v in data.items() if k != "id"})
+                return {"collectionUpdate": {"collection": node, "userErrors": []}}
+        return {"collectionUpdate": {"collection": None, "userErrors": [
+            {"message": "Collection not found"}]}}
+
+    def _op_pages(self, variables):
+        return {"pages": _page(list(self.pages.values()), variables)}
+
+    def _op_pageCreate(self, variables):
+        data = variables["page"]
+        handle = data.get("handle", "")
+        node = {"id": self.gid("Page"), "handle": handle,
+                "title": data.get("title", ""), "body": data.get("body", "")}
+        self.pages[handle] = node
+        return {"pageCreate": {"page": node, "userErrors": []}}
+
+    def _op_pageUpdate(self, variables):
+        for node in self.pages.values():
+            if node["id"] == variables["id"]:
+                node.update(variables["page"])
+                return {"pageUpdate": {"page": node, "userErrors": []}}
+        return {"pageUpdate": {"page": None,
+                               "userErrors": [{"message": "Page not found"}]}}
+
+    def _op_shopPolicies(self, _variables):
+        return {"shop": {"shopPolicies": list(self.policies.values())}}
+
+    def _op_shopPolicyUpdate(self, variables):
+        data = variables["shopPolicy"]
+        kind = data.get("type")
+        node = self.policies.setdefault(
+            kind, {"id": self.gid("ShopPolicy"), "type": kind, "body": ""}
+        )
+        node["body"] = data.get("body", "")
+        return {"shopPolicyUpdate": {"shopPolicy": {"id": node["id"],
+                                                    "type": kind},
+                                     "userErrors": []}}
+
+    def _op_menus(self, variables):
+        return {"menus": _page(list(self.menus.values()), variables)}
+
+    def _op_menuCreate(self, variables):
+        handle = variables["handle"]
+        node = {"id": self.gid("Menu"), "handle": handle,
+                "title": variables["title"],
+                "items": [{"id": self.gid("MenuItem"), "title": i["title"],
+                           "url": i.get("url", "")} for i in variables["items"]]}
+        self.menus[handle] = node
+        return {"menuCreate": {"menu": node, "userErrors": []}}
+
+    def _op_menuUpdate(self, variables):
+        for node in self.menus.values():
+            if node["id"] == variables["id"]:
+                node.update({"title": variables["title"],
+                             "handle": variables["handle"],
+                             "items": [{"id": self.gid("MenuItem"),
+                                        "title": i["title"],
+                                        "url": i.get("url", "")}
+                                       for i in variables["items"]]})
+                return {"menuUpdate": {"menu": node, "userErrors": []}}
+        return {"menuUpdate": {"menu": None,
+                               "userErrors": [{"message": "Menu not found"}]}}
 
     def _op_tagsAdd(self, variables):
         for order in self.orders:

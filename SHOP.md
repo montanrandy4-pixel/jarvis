@@ -1,24 +1,56 @@
 # Shop autopilot
 
-Runs a Shopify store from a supplier feed: creates listings, keeps prices and
-stock in step, retires what the supplier drops, and triages incoming orders.
-It writes product copy with the same local model JARVIS uses, so there is no
+A whole Shopify store as a file, and the tooling to build and run it: brand,
+collections, pages, policies, navigation and catalogue in `store.toml`, created
+in your store with one command, then kept in step with your supplier's feed.
+Product copy is written by the same local model JARVIS uses, so there is no
 second API bill and nothing leaves the machine.
 
 ```bash
-shop init          # write a starter shop.toml
-shop doctor        # check the token, the store and the feed
-shop plan          # what a sync would change -- writes nothing
-shop apply --live  # do it
-shop run --live    # keep doing it, every hour
+shop scaffold          # a complete store, ready to edit
+shop preview --open    # see the whole thing before it exists
+shop doctor            # check the token, the store and the feed
+shop build --live      # collections, pages, policies, navigation
+shop apply --live      # the products
+shop run --live        # keep it in step, every hour
 ```
+
+`shop scaffold` writes three files:
+
+| File | What it is |
+|---|---|
+| `store.toml` | The store itself: brand, collections, pages, policies, navigation |
+| `feed.csv` | The catalogue, in the shape a supplier feed arrives in |
+| `shop.toml` | How it runs: pricing rules, order handling, schedule |
+
+Edit those three and you have your shop rather than the example one. `shop
+preview` renders all of it — home page, every collection, every product, every
+policy — as a local static site you can read before any of it is real.
+
+## The one step you have to do yourself
+
+**Creating the Shopify account.** It needs your email, your password, your
+payment details and your acceptance of Shopify's terms, so it cannot be
+automated on your behalf. It takes about three minutes:
+
+1. Sign up at [shopify.com](https://www.shopify.com) and pick a plan (there is
+   a trial).
+2. In the admin: **Settings → Apps and sales channels → Develop apps → Create
+   an app**, with the scopes in the table below, then **Install app**.
+3. Copy the Admin API access token (`shpat_…`).
+
+```bash
+export SHOPIFY_ADMIN_TOKEN=shpat_...
+shop doctor && shop build --live && shop apply --live
+```
+
+Everything after that is automated.
 
 ## What it will not do
 
 Worth reading before the rest.
 
-- **It does not create the store.** Shopify needs your account, your plan and
-  your payment details. This automates a store you own.
+- **It does not create the account.** See above — that part is yours.
 - **It does not publish anything.** New products are created as **drafts**. A
   person decides what goes on sale. After that, the autopilot maintains them.
 - **It does not mark orders fulfilled.** Fulfilment tells a customer their
@@ -30,8 +62,8 @@ Worth reading before the rest.
 
 ## Setup
 
-1. **Create a custom app** in your Shopify admin: Settings → Apps and sales
-   channels → Develop apps → Create an app. Give it these Admin API scopes:
+1. **Create a custom app** in your Shopify admin (see above). Give it these
+   Admin API scopes:
 
    | Scope | Why |
    |---|---|
@@ -39,6 +71,7 @@ Worth reading before the rest.
    | `read_inventory`, `write_inventory` | Keep stock levels in step |
    | `read_locations` | Find where stock lives |
    | `read_orders`, `write_orders` | Triage and tag orders |
+   | `read_content`, `write_content` | Pages and navigation |
 
    Install it and copy the Admin API access token (`shpat_…`).
 
@@ -55,6 +88,41 @@ Worth reading before the rest.
    `cost` / `Wholesale Price` / `Your Price`, `qty` / `Stock` / `In Stock`, and
    so on. `shop doctor` prints the mapping it worked out and every row it had
    to reject, with the reason.
+
+## Building the store
+
+`shop build` makes the store match `store.toml`. Everything is matched by
+handle, so it creates what is missing and edits what has changed — running it
+twice writes nothing the second time.
+
+```
+$ shop build --live
+  create    collection  Lighting
+  create    collection  Shelving & Storage
+  create    page        About
+  create    policy      refund policy
+  create    menu        Main menu
+  ...
+13 to create, 0 to update, 0 already correct
+built: {'created': 13, 'updated': 0, 'failed': 0}
+
+$ shop build --live          # after editing one page
+0 to create, 1 to update, 12 already correct
+```
+
+Collections given a `tag` build themselves: any product carrying that tag joins
+automatically, including ones a later feed sync adds.
+
+### The policies
+
+`store.toml` ships with drafts of the refund, privacy, terms and shipping
+policies, so the store is not missing legally required pages on day one. They
+are full of `{{PLACEHOLDERS}}` — your business name, address, delivery prices,
+jurisdiction — and `shop build` will happily publish them with the placeholders
+still in, because it cannot know your details.
+
+**They are a starting point, not legal advice.** Read them, fill them in, and
+have them checked against the rules where you sell.
 
 ## How a sync works
 
@@ -166,6 +234,20 @@ shop apply --live --limit 1     # one product, then look at it in the admin
 Shopify ships an API version quarterly and supports each for a year. If
 `api_version` falls out of support, `shop doctor` fails with a 404 naming it.
 
+## What has actually been verified
+
+Both the structure build and the catalogue sync run against a **mock Shopify
+Admin API** in the test suite, including the thing that matters most for
+anything on a timer: a full build and a full sync are provably no-ops the
+second time they run.
+
+The preview is rendered and checked in a real browser.
+
+It has **not** been run against a real Shopify store — I had no store or token.
+The pages and menus mutations (`pageCreate`, `menuCreate`) arrived in the
+2024-10 API cycle; if your `api_version` predates them, `shop build` will report
+them as unknown fields rather than failing quietly.
+
 ## Files
 
 ```
@@ -180,5 +262,9 @@ src/shop/
   copy.py       generated listings, and the checks on them
   ledger.py     what the autopilot has already done
   autopilot.py  one pass, and the loop
-  cli.py        shop init | doctor | plan | apply | orders | status | run
+  store.py      the store definition: brand, collections, pages, policies
+  scaffold.py   the starter store this all begins from
+  storefront.py building the structure, idempotently
+  preview.py    the whole store as a local static site
+  cli.py        scaffold | preview | doctor | build | plan | apply | orders | run
 ```

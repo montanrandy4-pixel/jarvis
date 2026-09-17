@@ -127,3 +127,107 @@ mutation tagsAdd($id: ID!, $tags: [String!]!) {
   }
 }
 """
+
+
+# --- Store structure -------------------------------------------------------
+# These are the newer Admin API mutations (pages and menus arrived in the
+# 2024-10 cycle). If you run an older api_version, `shop build` will report
+# them as unknown fields rather than failing silently.
+
+COLLECTIONS = """
+query collections($first: Int!, $after: String) {
+  collections(first: $first, after: $after) {
+    edges { node { id handle title descriptionHtml } }
+    pageInfo { hasNextPage endCursor }
+  }
+}
+"""
+
+CREATE_COLLECTION = """
+mutation collectionCreate($input: CollectionInput!) {
+  collectionCreate(input: $input) {
+    collection { id handle title }
+    userErrors { field message }
+  }
+}
+"""
+
+UPDATE_COLLECTION = """
+mutation collectionUpdate($input: CollectionInput!) {
+  collectionUpdate(input: $input) {
+    collection { id handle title }
+    userErrors { field message }
+  }
+}
+"""
+
+PAGES = """
+query pages($first: Int!, $after: String) {
+  pages(first: $first, after: $after) {
+    edges { node { id handle title body } }
+    pageInfo { hasNextPage endCursor }
+  }
+}
+"""
+
+CREATE_PAGE = """
+mutation pageCreate($page: PageCreateInput!) {
+  pageCreate(page: $page) {
+    page { id handle title }
+    userErrors { field message }
+  }
+}
+"""
+
+UPDATE_PAGE = """
+mutation pageUpdate($id: ID!, $page: PageUpdateInput!) {
+  pageUpdate(id: $id, page: $page) {
+    page { id handle title }
+    userErrors { field message }
+  }
+}
+"""
+
+SHOP_POLICIES = """
+query shopPolicies { shop { shopPolicies { id type body } } }
+"""
+
+UPDATE_POLICY = """
+mutation shopPolicyUpdate($shopPolicy: ShopPolicyInput!) {
+  shopPolicyUpdate(shopPolicy: $shopPolicy) {
+    shopPolicy { id type }
+    userErrors { field message }
+  }
+}
+"""
+
+MENUS = """
+query menus($first: Int!, $after: String) {
+  menus(first: $first, after: $after) {
+    edges {
+      node { id handle title items { id title url } }
+    }
+    pageInfo { hasNextPage endCursor }
+  }
+}
+"""
+
+CREATE_MENU = """
+mutation menuCreate($title: String!, $handle: String!, $items: [MenuItemCreateInput!]!) {
+  menuCreate(title: $title, handle: $handle, items: $items) {
+    menu { id handle }
+    userErrors { field message }
+  }
+}
+"""
+
+UPDATE_MENU = """
+mutation menuUpdate(
+  $id: ID!, $title: String!, $handle: String!, $items: [MenuItemUpdateInput!]!
+) {
+  menuUpdate(id: $id, title: $title, handle: $handle, items: $items) {
+    menu { id handle }
+    userErrors { field message }
+  }
+}
+"""
