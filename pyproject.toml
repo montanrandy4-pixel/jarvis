@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jarvis"
+version = "0.1.0"
+description = "A voice-driven AI assistant powered by Claude."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "anthropic>=0.40",
+]
+
+[project.optional-dependencies]
+# Local speech recognition. faster-whisper is the default engine.
+stt = ["faster-whisper>=1.0"]
+# Microphone capture, voice-activity detection and wake-word spotting.
+audio = ["sounddevice>=0.4", "numpy>=1.24", "webrtcvad>=2.0"]
+wake = ["openwakeword>=0.6"]
+# Cross-platform offline speech synthesis fallback.
+tts = ["pyttsx3>=2.90"]
+# Everything needed for hands-free voice mode.
+voice = [
+    "faster-whisper>=1.0",
+    "sounddevice>=0.4",
+    "numpy>=1.24",
+    "webrtcvad>=2.0",
+    "openwakeword>=0.6",
+    "pyttsx3>=2.90",
+]
+dev = ["pytest>=7.4"]
+
+[project.scripts]
+jarvis = "jarvis.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
