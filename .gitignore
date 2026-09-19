@@ -8,3 +8,7 @@ venv/
 .env
 .pytest_cache/
 *.wav
+
+# Local config: store domain, phone numbers, webhook URLs. Never commit these.
+shop.toml
+*.local.toml

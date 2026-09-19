@@ -210,10 +210,14 @@ class Dispatcher:
     webhook_url: str = ""
     email: dict = field(default_factory=dict)
     log_path: Path | None = None
+    # Texts, for the things worth a buzz in your pocket.
+    twilio: object | None = None
+    shop_label: str = ""
     # Minimum severity per channel: interrupt for blockers, log everything.
     desktop_min: str = WARNING
     webhook_min: str = WARNING
     email_min: str = CRITICAL
+    sms_min: str = CRITICAL
 
     def dispatch(self, alerts: list[Alert]) -> tuple[list[Alert], list[str]]:
         """Send what is due. Returns (sent, resolved_keys)."""
@@ -236,6 +240,11 @@ class Dispatcher:
                 to_webhook(self._at_least(ordered, self.webhook_min), self.webhook_url)
             if self.email.get("to"):
                 to_email(self._at_least(ordered, self.email_min), self.email)
+            if self.twilio is not None and getattr(self.twilio, "configured", False):
+                from .sms import to_sms
+
+                to_sms(ordered, self.twilio, shop=self.shop_label,
+                       minimum=self.sms_min)
 
         for alert in ordered:
             self.state.mark(alert)

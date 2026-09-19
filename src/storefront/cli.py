@@ -10,6 +10,7 @@
     storefront watch --live      24/7: check, alert, repeat
     storefront storefront-check  walk the live shop in a browser
     storefront serve --live      a 3D workspace showing what it is doing
+    storefront phone --test      check SMS and voice, send a test text
 """
 
 from __future__ import annotations
@@ -306,6 +307,9 @@ def _dispatcher(config, args) -> alerts_mod.Dispatcher:
         webhook_url=args.webhook or config.alert_webhook,
         email=config.alert_email,
         log_path=config.alert_log_path,
+        twilio=config.twilio,
+        sms_min=config.alert_sms_min,
+        shop_label=config.store_domain.split(".")[0],
     )
 
 
@@ -372,6 +376,50 @@ def cmd_serve(args) -> int:
     )
 
 
+def cmd_phone(args) -> int:
+    """Check the phone setup, and optionally send a real test text."""
+    config = _config(args)
+    twilio = config.twilio
+    print("SMS")
+    for label, value, env in (
+        ("account sid", twilio.account_sid, config.twilio_sid_env),
+        ("auth token", twilio.auth_token, config.twilio_token_env),
+        ("from number", twilio.from_number, config.twilio_from_env),
+        ("to number", twilio.to_number, config.alert_sms_to_env),
+    ):
+        # Never print a credential back, only whether it is present.
+        shown = "set" if value else f"MISSING  (export {env}=...)"
+        if value and "number" in label:
+            shown = value            # numbers are not secret to their owner
+        print(f"  {TICK if value else CROSS} {label:12} {shown}")
+    print(f"  threshold    {config.alert_sms_min} and above")
+
+    print("\nVoice")
+    if config.voice_public_url:
+        print(f"  {TICK} public url  {config.voice_public_url}")
+        print(f"      point Twilio's voice webhook at {config.voice_public_url}/voice")
+    else:
+        print(f"  {CROSS} voice_public_url is not set -- inbound calls will be refused")
+        print("      set it to the HTTPS URL Twilio posts to, e.g. a tunnel")
+
+    if not args.test:
+        print("\nAdd --test to send a real text.")
+        return 0 if twilio.configured else 1
+
+    if not twilio.configured:
+        print(f"\n{CROSS} cannot send: configuration is incomplete")
+        return 1
+    from .sms import SmsError
+    try:
+        sid = twilio.send(f"{config.store_domain.split('.')[0]}: test message from "
+                          "the shop agent. Alerts will look like this.")
+        print(f"\n{TICK} sent ({sid})")
+        return 0
+    except SmsError as exc:
+        print(f"\n{CROSS} {exc}")
+        return 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="storefront", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -409,6 +457,9 @@ def build_parser() -> argparse.ArgumentParser:
     w.add_argument("--collection", action="append", help="collection handle to check")
     w.add_argument("--no-browser", action="store_true", help="skip browser checks")
 
+    ph = sub.add_parser("phone", help="check SMS and voice setup")
+    ph.add_argument("--test", action="store_true", help="send a real test text")
+
     sv = sub.add_parser("serve", help="a 3D workspace showing what it is doing")
     sv.add_argument("--live", action="store_true", help="allow writes (order tagging)")
     sv.add_argument("--port", type=int, default=8765)
@@ -443,6 +494,7 @@ def main(argv: list[str] | None = None) -> int:
         "attach": cmd_attach, "assets": cmd_assets, "orders": cmd_orders,
         "report": cmd_report, "run": cmd_run, "watch": cmd_watch,
         "storefront-check": cmd_storefront_check, "serve": cmd_serve,
+        "phone": cmd_phone,
     }
     try:
         return handlers[args.command](args)

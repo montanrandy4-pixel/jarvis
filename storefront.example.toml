@@ -34,6 +34,24 @@ alert_desktop = true
 browser_checks = true
 storefront_check_minutes = 60
 
+# --- Phone ---
+# Text alerts and inbound calls run through Twilio. Credentials AND your phone
+# number come from the environment, never from this file -- this repository may
+# be public, and a phone number in a public repo is scraped within days.
+#
+#   export TWILIO_ACCOUNT_SID=AC...
+#   export TWILIO_AUTH_TOKEN=...
+#   export TWILIO_FROM_NUMBER=+1XXXXXXXXXX     # the number Twilio gave you
+#   export ALERT_SMS_TO=+1XXXXXXXXXX           # your mobile
+#
+# Only alerts at or above this severity are worth a buzz in your pocket.
+alert_sms_min = "critical"
+
+# For inbound calls: the public HTTPS URL Twilio posts to. Must match exactly
+# what you configured in Twilio, including scheme and path. Leave it empty and
+# every inbound call is refused, which is the safe default.
+# voice_public_url = "https://your-tunnel.example.com"
+
 # Email is off unless you fill this in. Use an app password, not your own.
 # [storefront.alert_email]
 # to = "you@example.com"

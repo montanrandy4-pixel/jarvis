@@ -18,6 +18,7 @@ import logging
 import mimetypes
 import queue
 import threading
+import urllib.parse
 import time
 import webbrowser
 from dataclasses import dataclass, field
@@ -25,7 +26,8 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import agent, alerts as alerts_mod, audit as audit_mod, watch as watch_mod
+from . import agent, alerts as alerts_mod, audit as audit_mod, voice as voice_mod
+from . import watch as watch_mod
 from .alerts import CRITICAL, INFO, WARNING
 from .config import Config
 
@@ -253,6 +255,43 @@ def _handler(workspace: Workspace):
             kind = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
             self.send_response(200)
             self.send_header("Content-Type", kind)
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_POST(self) -> None:  # noqa: N802
+            route = self.path.split("?")[0]
+            if route not in ("/voice", "/voice/answer"):
+                self.send_error(404)
+                return
+
+            length = int(self.headers.get("Content-Length") or 0)
+            raw = self.rfile.read(min(length, 64_000)).decode("utf-8", "replace")
+            params = {k: v[0] for k, v in urllib.parse.parse_qs(raw).items()}
+
+            # Without this check, anyone who found the public URL could ring
+            # up and be read the shop's revenue.
+            token = workspace.config.twilio.auth_token
+            public = (workspace.config.voice_public_url or "").rstrip("/")
+            expected_url = f"{public}{route}" if public else ""
+            signature = self.headers.get("X-Twilio-Signature", "")
+            if not voice_mod.verify(signature, expected_url, params, token):
+                log.warning("refused an unverified call to %s", route)
+                self._xml(voice_mod.rejected(), status=403)
+                return
+
+            if route == "/voice":
+                self._xml(voice_mod.incoming_call())
+            else:
+                question = params.get("SpeechResult", "")
+                log.info("call asked: %r", question)
+                self._xml(voice_mod.spoken_answer(question, workspace.snapshot()))
+
+        def _xml(self, body: str, status: int = 200) -> None:
+            data = body.encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "text/xml; charset=utf-8")
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Cache-Control", "no-store")
             self.end_headers()

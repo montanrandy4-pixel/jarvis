@@ -211,6 +211,69 @@ from a CDN; the HUD deliberately has no dependencies, so a blocked or offline
 CDN costs you the visualisation and nothing else. You get a plain message
 saying so rather than a black rectangle.
 
+## Alerts to your phone, and calling the agent
+
+Both run through Twilio. You need an account, a number, and about ten minutes.
+
+### Your number never goes in a file
+
+Credentials **and your phone number** are read from the environment. This
+repository may be public, and a phone number committed to a public repo is
+scraped and sold within days. `shop.toml` is gitignored for the same reason.
+
+```bash
+export TWILIO_ACCOUNT_SID=AC...
+export TWILIO_AUTH_TOKEN=...
+export TWILIO_FROM_NUMBER=+1XXXXXXXXXX    # the number Twilio gave you
+export ALERT_SMS_TO=+1XXXXXXXXXX          # your mobile
+
+storefront phone            # shows what is set, without printing secrets
+storefront phone --test     # sends one real text
+```
+
+Texts default to **critical only** — a product that cannot be delivered, an
+unreachable store, an API that stopped answering. Warnings stay on the screen.
+One text per pass, worst problem first, with a count of the rest.
+
+### Calling the agent
+
+Twilio needs a public HTTPS URL to post to, and the agent runs on your
+machine, so you need a tunnel:
+
+```bash
+cloudflared tunnel --url http://localhost:8765     # or: ngrok http 8765
+```
+
+Then in Twilio, set the number's **Voice webhook** to `https://<tunnel>/voice`
+(POST), and put the same base URL in your config:
+
+```toml
+voice_public_url = "https://<tunnel>"
+```
+
+Ring it and ask. It understands revenue, orders, problems, products, alerts
+and overall status:
+
+> **you:** how's the shop doing
+> **agent:** Not good. 14 products cannot be delivered to a buyer. Revenue is 217.00 dollars.
+>
+> **you:** what's wrong
+> **agent:** 14 products cannot be delivered: Contract Pack, Proposal Kit, Onboarding System, and 11 more.
+
+Three deliberate constraints:
+
+- **Answers are deterministic, not generated.** A phone call is a bad place
+  for a language model to improvise about money. Every answer comes from real
+  numbers, and an unrecognised question says so and lists what it can answer
+  rather than guessing plausibly.
+- **Every request is verified.** Twilio signs each one; the agent checks the
+  HMAC against your auth token. Unsigned, wrongly signed, or arriving while
+  `voice_public_url` is unset — all refused, and the refusal says nothing
+  about the shop. Without this, anyone who found your tunnel URL could ring up
+  and be read your revenue.
+- **It is read-only.** You can ask anything. You cannot tell it to change
+  anything, over a channel authenticated by nothing but possession of a phone.
+
 ## Running it as a service
 
 macOS, `~/Library/LaunchAgents/com.solostack.watch.plist`, or Linux systemd:
@@ -260,7 +323,7 @@ A failing pass never kills the loop; it logs and waits for the next one.
 
 ## What has actually been tested
 
-72 unit tests covering the audit rules, order triage, the asset ledger
+106 unit tests covering the audit rules, order triage, the asset ledger
 (including digest staleness and a corrupt ledger file), and attachment
 planning. The audit tests lean hard on the blocker cases, because a false "all
 clear" is the one failure that costs a real customer real money.
@@ -273,6 +336,13 @@ The workspace server is tested end to end over real HTTP: it serves the page
 and assets, refuses path traversal outside its web root, caps listeners, drops
 a listener that cannot keep up rather than back-pressuring the watch loop, and
 never puts the token in a response.
+
+**Nothing involving Twilio has been run against Twilio.** There were no
+credentials where this was written, so the SMS send path and a real inbound
+call are both unexercised. The signature verification, the intent routing, the
+answers and the webhook's refusal behaviour are all tested against a local
+server with a known token — but `storefront phone --test` will be the first
+time a message actually leaves for Twilio.
 
 **The 3D scene itself has never been rendered.** The CDN was unreachable where
 it was written, so WebGL output is unverified — the JavaScript parses, the data

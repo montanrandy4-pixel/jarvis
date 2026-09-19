@@ -51,9 +51,34 @@ class Config:
     storefront_check_minutes: int = 60
     browser_checks: bool = True
 
+    # --- Phone ---
+    # Credentials and the number itself come from the environment by default.
+    # A phone number is personal data and this repository may be public.
+    twilio_sid_env: str = "TWILIO_ACCOUNT_SID"
+    twilio_token_env: str = "TWILIO_AUTH_TOKEN"
+    twilio_from_env: str = "TWILIO_FROM_NUMBER"
+    alert_sms_to_env: str = "ALERT_SMS_TO"
+    # Only critical alerts buzz a pocket by default.
+    alert_sms_min: str = "critical"
+    # The public HTTPS URL Twilio posts to, for verifying its signature.
+    # Must match exactly what Twilio was configured with, including the path.
+    voice_public_url: str = ""
+
     @property
     def token(self) -> str:
         return os.environ.get(self.token_env, "")
+
+    @property
+    def twilio(self):
+        """Twilio settings, assembled from the environment."""
+        from .sms import Twilio
+
+        return Twilio(
+            account_sid=os.environ.get(self.twilio_sid_env, ""),
+            auth_token=os.environ.get(self.twilio_token_env, ""),
+            from_number=os.environ.get(self.twilio_from_env, ""),
+            to_number=os.environ.get(self.alert_sms_to_env, ""),
+        )
 
     @property
     def endpoint(self) -> str:
