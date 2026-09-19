@@ -15,7 +15,7 @@ const CLIENT_DIR = path.resolve(here, '../../client');
 export function buildApp({ config, store, agent }) {
   const app = express();
   app.use(express.json({ limit: '128kb' }));
-  app.use('/api', buildRoutes({ agent, store, config }));
+  app.use('/api', buildRoutes({ agent, store }));
   app.use(express.static(CLIENT_DIR, { index: 'index.html' }));
   app.use((_req, res) => res.status(404).json({ error: 'not found' }));
   return app;
@@ -44,12 +44,8 @@ export function main() {
   const server = app.listen(config.port, () => {
     console.log(`shopkeeper   http://localhost:${config.port}`);
     console.log(`  store      ${shopify.domain}`);
-    console.log(`  model      ${config.model}`);
     console.log(`  interval   every ${config.intervalMinutes}m`);
     console.log(`  database   ${config.databaseFile}`);
-    if (!config.anthropicApiKey) {
-      console.log('  agent      idle (no ANTHROPIC_API_KEY)');
-    }
     agent.start();
   });
 

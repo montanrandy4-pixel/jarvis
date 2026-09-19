@@ -47,16 +47,18 @@
       <p class="mt-1 text-2xl font-semibold tabular-nums" id="lastRun">—</p>
     </div>
     <div class="rounded-xl border border-line bg-panel p-4">
-      <p class="text-[10px] uppercase tracking-wider text-muted">Spend 24h</p>
-      <p class="mt-1 text-2xl font-semibold tabular-nums" id="spend">—</p>
+      <p class="text-[10px] uppercase tracking-wider text-muted">Next check</p>
+      <p class="mt-1 text-2xl font-semibold tabular-nums" id="nextRun">—</p>
     </div>
   </section>
 
   <section class="rounded-xl border border-line bg-panel p-4 mb-7">
     <label for="question" class="text-[10px] uppercase tracking-wider text-muted">Ask the agent</label>
+    <p class="mt-1 text-xs text-muted">Understands a fixed set of topics. Type
+      <span class="text-ok">help</span> to see them.</p>
     <form id="askForm" class="mt-2 flex gap-2">
       <input id="question" autocomplete="off"
-        placeholder="What should I worry about today?"
+        placeholder="stock · sales · refunds · products · attention"
         class="flex-1 rounded-lg border border-line bg-ink px-3 py-2 text-sm
                outline-none focus:border-ok placeholder:text-muted">
       <button class="rounded-lg border border-line px-4 py-2 text-sm hover:border-ok

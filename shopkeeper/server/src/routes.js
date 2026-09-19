@@ -1,8 +1,8 @@
 /** The HTTP surface: alerts, status, activity, and talking to the agent. */
 import express from 'express';
-import { describeError } from './lib/claude.js';
+import { describeError } from './lib/rules.js';
 
-export function buildRoutes({ agent, store, config }) {
+export function buildRoutes({ agent, store }) {
   const router = express.Router();
 
   const fail = (res, error, status = 500) =>
@@ -58,26 +58,29 @@ export function buildRoutes({ agent, store, config }) {
         skipped: result.skipped ?? null,
         created: result.created ?? 0,
         resolved: result.resolved ?? 0,
+        unchanged: result.unchanged ?? false,
         summary: result.assessment?.summary ?? null,
       });
     } catch (error) { fail(res, error); }
   });
 
-  /** Ask the agent a question about the store, in plain language. */
+  /**
+   * Ask the agent about the store.
+   *
+   * It understands a fixed set of questions rather than free text -- see
+   * RulesAgent.ask -- and says so plainly when it does not recognise one.
+   */
   router.post('/agent/ask', async (req, res) => {
     const question = String(req.body?.question ?? '').trim();
     if (!question) return res.status(400).json({ error: 'a question is required' });
     if (question.length > 2000) {
       return res.status(400).json({ error: 'question is too long' });
     }
-    if (!config.anthropicApiKey) {
-      return res.status(503).json({ error: 'ANTHROPIC_API_KEY is not set' });
-    }
     try {
       const facts = await agent.currentFacts();
-      const { answer, usage } = await agent.claude.ask(question, facts);
+      const { answer } = await agent.rules.ask(question, facts);
       store.log('prompt', question, answer);
-      res.json({ answer, usage });
+      res.json({ answer });
     } catch (error) { fail(res, error, 502); }
   });
 

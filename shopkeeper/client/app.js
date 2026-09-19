@@ -20,6 +20,16 @@ const ago = (iso) => {
   return `${Math.round(s / 86400)}d ago`;
 };
 
+/** The mirror of `ago`, for a time that has not happened yet. */
+const until = (iso) => {
+  if (!iso) return '—';
+  const s = (new Date(iso).getTime() - Date.now()) / 1000;
+  if (s <= 0) return 'due';
+  if (s < 60) return `${Math.round(s)}s`;
+  if (s < 3600) return `${Math.round(s / 60)}m`;
+  return `${Math.round(s / 3600)}h`;
+};
+
 async function api(path, options) {
   const response = await fetch(`/api${path}`, {
     headers: { 'Content-Type': 'application/json' },
@@ -41,10 +51,10 @@ function renderStatus(status) {
     `mt-1 text-2xl font-semibold tabular-nums ${status.alerts?.critical ? 'text-crit' : 'text-ok'}`;
   $('cWarning').textContent = status.alerts?.warning ?? 0;
   $('lastRun').textContent = ago(status.lastRun?.finished_at ?? status.lastRun?.started_at);
-  $('spend').textContent = `$${(status.spend24h?.cost ?? 0).toFixed(3)}`;
+  $('nextRun').textContent = status.nextRunAt ? until(status.nextRunAt) : 'paused';
 
-  const bits = [status.model, `every ${status.intervalMinutes}m`];
-  if (!status.hasApiKey) bits.push('no API key — agent idle');
+  const bits = [`every ${status.intervalMinutes}m`];
+  if (status.lastRun?.unchanged) bits.push('nothing has moved');
   if (status.running) bits.push('checking now…');
   $('storeLine').textContent = bits.join('  ·  ');
 }
@@ -141,7 +151,7 @@ $('askForm').addEventListener('submit', async (event) => {
   const box = $('answer');
   $('askBtn').disabled = true;
   box.classList.remove('hidden');
-  box.textContent = 'Thinking…';
+  box.textContent = 'Checking…';
   try {
     const { answer } = await api('/agent/ask', {
       method: 'POST',

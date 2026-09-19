@@ -1,8 +1,8 @@
 /**
  * One pass of the agent, and the schedule around it.
  *
- * Read the shop, compute the facts, and -- only if they changed -- ask Claude
- * what matters. Store what comes back, close what no longer applies.
+ * Read the shop, compute the facts, run the rules over them. Store what comes
+ * back, close what no longer applies.
  *
  * The loop is deliberately unkillable. A pass that throws is recorded as a
  * failed run and the next one goes ahead; an agent that dies quietly at 3am is
@@ -10,18 +10,15 @@
  */
 import { EventEmitter } from 'node:events';
 import { gather } from './lib/conditions.js';
-import { ClaudeAgent, describeError, fingerprint } from './lib/claude.js';
+import { RulesAgent, describeError, fingerprint } from './lib/rules.js';
 
 export class Agent extends EventEmitter {
-  constructor({ config, store, shopify, claude }) {
+  constructor({ config, store, shopify, rules }) {
     super();
     this.config = config;
     this.store = store;
     this.shopify = shopify;
-    this.claude = claude ?? new ClaudeAgent({
-      apiKey: config.anthropicApiKey,
-      model: config.model,
-    });
+    this.rules = rules ?? new RulesAgent({ config });
     this.timer = null;
     this.running = false;
     this.lastFacts = null;
@@ -36,17 +33,12 @@ export class Agent extends EventEmitter {
       running: this.running,
       startedAt: this.startedAt,
       intervalMinutes: this.config.intervalMinutes,
-      model: this.config.model,
       nextRunAt: this.timer && last?.finished_at
         ? new Date(new Date(last.finished_at).getTime()
             + this.config.intervalMinutes * 60_000).toISOString()
         : null,
       lastRun: last,
       alerts: this.store.alertCounts(),
-      hasApiKey: Boolean(this.config.anthropicApiKey),
-      spend24h: this.store.spendSince(
-        new Date(Date.now() - 86_400_000).toISOString()
-      ),
     };
   }
 
@@ -88,24 +80,10 @@ export class Agent extends EventEmitter {
     try {
       const { facts, hash } = await this.#collect();
 
-      // Nothing changed since last pass: no question to ask, no tokens spent.
-      if (this.config.skipWhenUnchanged && hash === this.lastHash && trigger === 'schedule') {
-        this.store.finishRun(runId, {
-          status: 'skipped',
-          skip_reason: 'store conditions unchanged since the last pass',
-          facts_hash: hash,
-          duration_ms: Date.now() - startedAt,
-        });
-        this.store.log('pass', 'Skipped: nothing changed since the last pass');
-        this.emit('run:end', { runId, skipped: true });
-        return { skipped: 'unchanged', facts };
-      }
-
-      if (!this.config.anthropicApiKey) {
-        throw new Error('ANTHROPIC_API_KEY is not set');
-      }
-
-      const assessment = await this.claude.assess(facts);
+      // The rules are free to run, so they run every pass. The hash is still
+      // recorded -- it is how the dashboard can say nothing has moved.
+      const unchanged = hash === this.lastHash;
+      const assessment = await this.rules.assess(facts);
       let created = 0;
       const open = [];
 
@@ -122,24 +100,20 @@ export class Agent extends EventEmitter {
       for (const fp of resolved) this.emit('resolved', { fingerprint: fp });
 
       this.lastHash = hash;
-      const { usage } = assessment;
       this.store.finishRun(runId, {
         status: 'ok',
         facts_hash: hash,
         alerts_created: created,
-        input_tokens: usage.input,
-        output_tokens: usage.output,
-        cached_tokens: usage.cached,
-        cost_usd: usage.cost,
+        unchanged: unchanged ? 1 : 0,
         duration_ms: Date.now() - startedAt,
       });
       this.store.log(
         'pass',
         assessment.summary || `${created} new alert(s)`,
-        JSON.stringify({ created, resolved: resolved.length, usage })
+        JSON.stringify({ created, resolved: resolved.length, unchanged })
       );
-      this.emit('run:end', { runId, created, resolved: resolved.length });
-      return { assessment, created, resolved: resolved.length, facts };
+      this.emit('run:end', { runId, created, resolved: resolved.length, unchanged });
+      return { assessment, created, resolved: resolved.length, unchanged, facts };
     } catch (error) {
       const message = describeError(error);
       this.store.finishRun(runId, {

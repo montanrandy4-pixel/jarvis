@@ -18,14 +18,9 @@ export function loadConfig(env = process.env) {
     shopifyAccessToken: env.SHOPIFY_ACCESS_TOKEN ?? '',
     shopifyApiVersion: env.SHOPIFY_API_VERSION ?? '2026-01',
 
-    anthropicApiKey: env.ANTHROPIC_API_KEY ?? '',
-    model: env.CLAUDE_MODEL ?? 'claude-opus-5',
-
     intervalMinutes: num(env.AGENT_INTERVAL_MINUTES, 30),
     runOnStart: env.AGENT_RUN_ON_START !== 'false',
-    // Skip the model call when the facts are unchanged. The biggest cost
-    // lever there is; turn it off only to debug.
-    skipWhenUnchanged: env.AGENT_SKIP_UNCHANGED !== 'false',
+    dailySummary: env.AGENT_DAILY_SUMMARY !== 'false',
 
     lowStockThreshold: num(env.LOW_STOCK_THRESHOLD, 5),
     highValueOrder: num(env.HIGH_VALUE_ORDER, 250),
@@ -42,11 +37,8 @@ export function validate(config) {
   const warnings = [];
   if (!config.shopName) errors.push('SHOP_NAME is not set');
   if (!config.shopifyAccessToken) errors.push('SHOPIFY_ACCESS_TOKEN is not set');
-  if (!config.anthropicApiKey) {
-    warnings.push(
-      'ANTHROPIC_API_KEY is not set -- the dashboard and Shopify sync will work, ' +
-      'but the agent cannot assess anything'
-    );
+  if (config.lowStockThreshold < 0) {
+    warnings.push('LOW_STOCK_THRESHOLD is negative; nothing will ever be low');
   }
   if (config.intervalMinutes < 1) errors.push('AGENT_INTERVAL_MINUTES must be at least 1');
   return { errors, warnings };

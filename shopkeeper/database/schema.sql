@@ -12,16 +12,12 @@ CREATE TABLE IF NOT EXISTS runs (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
   started_at     TEXT    NOT NULL,
   finished_at    TEXT,
-  status         TEXT    NOT NULL DEFAULT 'running',  -- running|ok|failed|skipped
+  status         TEXT    NOT NULL DEFAULT 'running',  -- running|ok|failed
   trigger        TEXT    NOT NULL DEFAULT 'schedule', -- schedule|manual|startup
-  -- Why a pass did nothing: unchanged facts means we skipped the model call.
-  skip_reason    TEXT,
   facts_hash     TEXT,
+  -- Whether this pass saw exactly what the previous one saw.
+  unchanged      INTEGER NOT NULL DEFAULT 0,
   alerts_created INTEGER NOT NULL DEFAULT 0,
-  input_tokens   INTEGER NOT NULL DEFAULT 0,
-  output_tokens  INTEGER NOT NULL DEFAULT 0,
-  cached_tokens  INTEGER NOT NULL DEFAULT 0,
-  cost_usd       REAL    NOT NULL DEFAULT 0,
   duration_ms    INTEGER,
   error          TEXT
 );

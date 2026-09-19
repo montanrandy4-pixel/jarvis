@@ -70,7 +70,7 @@ if (fs.existsSync(path.join(HERE, 'node_modules', 'express'))) {
 }
 
 // ---- 3. Configuration ---------------------------------------------------
-step(3, 'Setting up your keys');
+step(3, 'Connecting your store');
 
 if (!fs.existsSync(ENV)) fs.copyFileSync(EXAMPLE, ENV);
 let env = fs.readFileSync(ENV, 'utf8');
@@ -109,14 +109,6 @@ const questions = [
         + '      -> Reveal token once. It starts with shpat_',
     valid: (v) => v.startsWith('shpat_') && v.length > 20,
     invalidMessage: 'That does not look like a token -- they start with shpat_',
-  },
-  {
-    key: 'ANTHROPIC_API_KEY',
-    label: 'Anthropic API key',
-    hint: 'https://console.anthropic.com/settings/keys -> Create Key.\n'
-        + '      It starts with sk-ant-',
-    valid: (v) => v.startsWith('sk-ant-') && v.length > 20,
-    invalidMessage: 'That does not look like a key -- they start with sk-ant-',
   },
 ];
 
@@ -158,14 +150,14 @@ try { fs.chmodSync(ENV, 0o600); } catch { /* Windows has no chmod; fine. */ }
 // ---- 4. Done ------------------------------------------------------------
 if (answered < questions.length) {
   say(`\n${bold('Not finished.')} ${questions.length - answered} of `
-    + `${questions.length} keys are still missing.`);
+    + `${questions.length} settings are still missing.`);
   say(`Open ${bold('.env')} in any text editor to fill them in, then run`);
   say(`${bold('npm start')}.\n`);
   rl.close();
   process.exit(0);
 }
 
-say(`\n${green(bold('Ready.'))} Your keys are in .env -- that file is private`);
+say(`\n${green(bold('Ready.'))} Your token is in .env -- that file is private`);
 say('and is never committed to git.\n');
 
 const start = (await rl.question('Start the dashboard now? [Y/n] ')).trim().toLowerCase();

@@ -35,8 +35,7 @@ export function createStore(db) {
     },
 
     finishRun(id, patch) {
-      const fields = ['status', 'skip_reason', 'facts_hash', 'alerts_created',
-        'input_tokens', 'output_tokens', 'cached_tokens', 'cost_usd',
+      const fields = ['status', 'facts_hash', 'unchanged', 'alerts_created',
         'duration_ms', 'error'];
       const set = fields.filter((f) => patch[f] !== undefined);
       if (!set.length) return;
@@ -164,16 +163,5 @@ export function createStore(db) {
       return db.prepare('SELECT * FROM activity ORDER BY id DESC LIMIT ?').all(limit);
     },
 
-    spendSince(iso) {
-      const row = db.prepare(`
-        SELECT COALESCE(SUM(cost_usd), 0) AS cost,
-               COALESCE(SUM(input_tokens), 0) AS input_tokens,
-               COALESCE(SUM(output_tokens), 0) AS output_tokens,
-               COALESCE(SUM(cached_tokens), 0) AS cached_tokens,
-               COUNT(*) AS runs
-        FROM runs WHERE started_at >= ?
-      `).get(iso);
-      return row;
-    },
   };
 }
