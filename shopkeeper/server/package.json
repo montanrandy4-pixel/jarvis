@@ -1,0 +1,9 @@
+{
+  "name": "shopkeeper-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Backend: Shopify sync, the Claude agent loop, and the HTTP API.",
+  "main": "src/index.js",
+  "comment": "Dependencies are installed once at the project root so server, client and database share a single node_modules and a single lockfile. Run `npm install` in the parent directory, then `npm start`."
+}

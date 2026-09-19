@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en" class="h-full">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shopkeeper</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = { theme: { extend: { colors: {
+    ink: '#15171C', panel: '#1E2128', line: '#2C3038',
+    cream: '#F4F1EA', muted: '#8A8F9A',
+    crit: '#E0603F', warn: '#D9A441', ok: '#5FB49C',
+  } } } };
+</script>
+</head>
+<body class="h-full bg-ink text-cream antialiased">
+<div class="mx-auto max-w-6xl px-5 py-8">
+
+  <header class="flex flex-wrap items-center justify-between gap-4 mb-7">
+    <div class="flex items-center gap-3">
+      <span id="pulse" class="h-2.5 w-2.5 rounded-full bg-muted"></span>
+      <div>
+        <h1 class="text-lg font-semibold leading-tight">Shopkeeper</h1>
+        <p class="text-xs text-muted" id="storeLine">connecting…</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-2">
+      <button id="runBtn"
+        class="rounded-lg border border-line bg-panel px-3.5 py-2 text-sm hover:border-ok
+               disabled:opacity-40 disabled:cursor-not-allowed transition">Run check now</button>
+      <button id="toggleBtn"
+        class="rounded-lg border border-line bg-panel px-3.5 py-2 text-sm hover:border-ok transition">Pause</button>
+    </div>
+  </header>
+
+  <section class="grid grid-cols-2 gap-3 sm:grid-cols-4 mb-7">
+    <div class="rounded-xl border border-line bg-panel p-4">
+      <p class="text-[10px] uppercase tracking-wider text-muted">Critical</p>
+      <p class="mt-1 text-2xl font-semibold tabular-nums" id="cCritical">—</p>
+    </div>
+    <div class="rounded-xl border border-line bg-panel p-4">
+      <p class="text-[10px] uppercase tracking-wider text-muted">Warnings</p>
+      <p class="mt-1 text-2xl font-semibold tabular-nums" id="cWarning">—</p>
+    </div>
+    <div class="rounded-xl border border-line bg-panel p-4">
+      <p class="text-[10px] uppercase tracking-wider text-muted">Last check</p>
+      <p class="mt-1 text-2xl font-semibold tabular-nums" id="lastRun">—</p>
+    </div>
+    <div class="rounded-xl border border-line bg-panel p-4">
+      <p class="text-[10px] uppercase tracking-wider text-muted">Spend 24h</p>
+      <p class="mt-1 text-2xl font-semibold tabular-nums" id="spend">—</p>
+    </div>
+  </section>
+
+  <section class="rounded-xl border border-line bg-panel p-4 mb-7">
+    <label for="question" class="text-[10px] uppercase tracking-wider text-muted">Ask the agent</label>
+    <form id="askForm" class="mt-2 flex gap-2">
+      <input id="question" autocomplete="off"
+        placeholder="What should I worry about today?"
+        class="flex-1 rounded-lg border border-line bg-ink px-3 py-2 text-sm
+               outline-none focus:border-ok placeholder:text-muted">
+      <button class="rounded-lg border border-line px-4 py-2 text-sm hover:border-ok
+                     disabled:opacity-40 transition" id="askBtn">Ask</button>
+    </form>
+    <div id="answer" class="mt-3 hidden whitespace-pre-wrap rounded-lg bg-ink p-3
+         text-sm leading-relaxed border border-line"></div>
+  </section>
+
+  <section>
+    <div class="mb-3 flex items-baseline justify-between">
+      <h2 class="text-[10px] uppercase tracking-wider text-muted">Alerts</h2>
+      <label class="flex items-center gap-2 text-xs text-muted cursor-pointer">
+        <input type="checkbox" id="showResolved" class="accent-ok">resolved
+      </label>
+    </div>
+    <ul id="alerts" class="space-y-2">
+      <li class="rounded-xl border border-line bg-panel p-8 text-center text-sm text-muted">
+        loading…
+      </li>
+    </ul>
+  </section>
+
+  <section class="mt-8">
+    <h2 class="mb-3 text-[10px] uppercase tracking-wider text-muted">Activity</h2>
+    <ul id="activity" class="space-y-1.5 text-xs"></ul>
+  </section>
+</div>
+<script src="/app.js"></script>
+</body>
+</html>
