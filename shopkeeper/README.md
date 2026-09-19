@@ -204,9 +204,13 @@ It is a plain file. Delete it to start clean; the schema is recreated on boot.
 
 ## Honest limits
 
-- **No real store has ever been read by this app.** The test suite uses a fake
-  Shopify. The queries were written against the current Admin API, but the
-  first run against your real credentials is the first real run.
+- **It has been run against one real store, not against real traffic.** The
+  Admin API queries were executed against a live shop (14 digital products, no
+  orders yet) and the whole app — agent loop, rules, SQLite, HTTP API, SSE,
+  dashboard — was driven with that payload. So the queries are known to be
+  valid and the wiring is known to hold. What has *not* been exercised is a
+  store with orders in it: refunds, unpaid orders, sales drops and the
+  fulfilment backlog are covered by the test suite's synthetic stores only.
 - **It only reads.** Any "recommendation" in an alert is for you to carry out.
   Nothing in this codebase can change your store.
 - **The rules are blunt, on purpose.** `LOW_STOCK_THRESHOLD` is one number for
