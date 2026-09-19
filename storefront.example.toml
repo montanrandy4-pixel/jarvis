@@ -1,0 +1,38 @@
+# Storefront agent settings. Merge this into your existing shop.toml --
+# both agents read the same file and neither reads the other's keys.
+
+[shop]
+store_domain = "wwt2sq-wi.myshopify.com"
+api_version = "2026-01"
+# The token itself lives in the environment, never in this file:
+#   export SHOPIFY_ADMIN_TOKEN=shpat_...
+token_env = "SHOPIFY_ADMIN_TOKEN"
+
+[storefront]
+# Flag any order at or above this. On a store selling files, an unusually
+# large order more often means card testing than a good day.
+review_above = 250.0
+
+# Where the product files live on your machine.
+assets_dir = "~/solostack/deliverables"
+
+# How often `storefront run` takes a pass.
+interval_minutes = 60
+
+# SKU -> filename, relative to assets_dir. These are the 14 products already
+# in the store; the filenames match what was delivered.
+[storefront.assets]
+"SS-CONTRACT-PACK"   = "The Freelance Contract Pack.zip"
+"SS-PROPOSAL-KIT"    = "The Proposal Kit.zip"
+"SS-ONBOARD-NOTION"  = "Client Onboarding System.zip"
+"SS-CRM-NOTION"      = "Freelance CRM and Pipeline Tracker.zip"
+"SS-INVOICE-SYS"     = "Invoice and Payment Chase System.zip"
+"SS-RATE-CALC"       = "Rate Calculator and Pricing Toolkit.xlsx"
+"SS-TAX-TRACKER"     = "Tax and Expense Tracker.xlsx"
+"SS-SCOPE-KIT"       = "Scope Creep Defense Kit.zip"
+"SS-PORTFOLIO"       = "Portfolio and Case Study Pack.zip"
+"SS-OUTREACH-50"     = "Cold Outreach Scripts.zip"
+"SS-CONTENT-90"      = "90-Day Content Calendar.zip"
+"SS-BUNDLE-LAUNCH"   = "The Launch Kit.zip"
+"SS-BUNDLE-GETPAID"  = "The Get Paid Bundle.zip"
+"SS-BUNDLE-COMPLETE" = "The Complete Solo Stack.zip"

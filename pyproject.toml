@@ -36,6 +36,7 @@ dev = ["pytest>=7.4"]
 [project.scripts]
 jarvis = "jarvis.cli:main"
 shop = "shop.cli:main"
+storefront = "storefront.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
