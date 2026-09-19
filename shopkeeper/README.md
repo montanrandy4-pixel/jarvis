@@ -28,7 +28,21 @@ shopkeeper/
 
 ## Running it locally
 
-**You need Node 20 or newer.** (`node --version`)
+**You need Node 20 or newer.** Get the LTS build from https://nodejs.org if you
+don't have it. (`node --version` to check.)
+
+### The short way
+
+```bash
+cd shopkeeper
+node setup.mjs
+```
+
+That checks your Node version, installs dependencies, asks for the three keys
+it needs, writes `.env` with permissions `600`, and offers to start the server.
+It is safe to run twice — it never overwrites an answer you already gave, and
+skips anything already done. If you'd rather do it by hand, the same steps are
+below.
 
 ### 1. Install
 
