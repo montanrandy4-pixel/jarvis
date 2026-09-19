@@ -107,6 +107,99 @@ Deliberate gaps, not missing features:
 
 It looks, it tags, it tells you.
 
+## The 24/7 watch
+
+```bash
+storefront watch --live --desktop
+```
+
+Three checks on three clocks, because they cost different amounts and change
+at different speeds:
+
+| Check | Every | Why that often |
+|---|---|---|
+| Catalogue | every pass | A product live without a file is the most expensive silent failure here |
+| Orders | every pass | An odd payment should not wait an hour |
+| Storefront (browser) | `storefront_check_minutes` | Drives a real Chromium, so it is expensive |
+
+Nothing short of Ctrl-C stops it. A failing pass logs and waits for the next
+one; a watch that dies at 3am is worse than no watch, because you believe you
+are being watched. Persistent failure escalates on the 3rd, 12th and 48th
+consecutive pass — once each, not every time.
+
+## What the browser sees that the API cannot
+
+The Admin API answers questions about *records*. It will tell you a product is
+active, published and priced while the storefront itself is broken — a theme
+update that swallowed the buy button, a collection page that 404s, a price
+rendering as nothing, an app script throwing and taking the page with it. None
+of that is a record; it is a rendering.
+
+`storefront storefront-check` walks the real shop and checks what a customer
+notices in the first thirty seconds:
+
+- the home page loads, and is not password-protected
+- collection and content pages return 200
+- product pages render **an actual price**
+- nothing says "sold out" (impossible on a digital store, so it means breakage)
+- **add to cart works and the item reaches the cart**
+
+It buys nothing. The deepest it goes is the cart, which is where a broken
+store usually reveals itself.
+
+```bash
+storefront storefront-check          # headless
+storefront storefront-check --show   # watch it happen
+```
+
+## Alerts that stay readable
+
+An alerting system earns its keep by what it *doesn't* send. A watcher
+reporting the same broken product every ten minutes trains you to ignore it,
+and then the one alert that mattered lands in a muted channel.
+
+- **Deduplicated.** Each alert has a stable key. The same problem does not
+  fire again until its cooldown expires, however many passes see it.
+- **Resolution is reported.** A problem that goes away says so, once, so you
+  are not left wondering.
+- **Routed by severity.** Critical can wake you; notes go to the log.
+
+| Channel | Default threshold | Notes |
+|---|---|---|
+| Console | everything | |
+| Log file | everything | `~/.local/state/storefront/alerts.log` |
+| Desktop | warning and above | macOS `osascript`, Linux `notify-send` |
+| Webhook | warning and above | Slack, Discord, anything taking `{"text": …}` |
+| Email | critical only | SMTP; use an app password |
+
+Channels are independent and best-effort: a dead webhook never stops a desktop
+notification, and no channel failure stops the loop.
+
+**Alerts are not written by a language model, deliberately.** They already say
+exactly what is wrong and what to do — *"Rate Calculator: no digital file
+recorded — attach it"*. Paraphrasing that could only make it less precise, and
+would add a dependency that can fail at 3am.
+
+## Running it as a service
+
+macOS, `~/Library/LaunchAgents/com.solostack.watch.plist`, or Linux systemd:
+
+```ini
+[Unit]
+Description=Shop watch
+After=network-online.target
+
+[Service]
+Environment=SHOPIFY_ADMIN_TOKEN=shpat_...
+WorkingDirectory=/home/you/jarvis
+ExecStart=/usr/local/bin/storefront watch --live --desktop
+Restart=always
+RestartSec=60
+
+[Install]
+WantedBy=default.target
+```
+
 ## Configuration
 
 Merge `storefront.example.toml` into your `shop.toml`. The token belongs in
@@ -136,13 +229,17 @@ A failing pass never kills the loop; it logs and waits for the next one.
 
 ## What has actually been tested
 
-34 unit tests covering the audit rules, order triage, the asset ledger
+59 unit tests covering the audit rules, order triage, the asset ledger
 (including digest staleness and a corrupt ledger file), and attachment
 planning. The audit tests lean hard on the blocker cases, because a false "all
 clear" is the one failure that costs a real customer real money.
 
+Alert dedup is covered hard — firing once, staying quiet, reporting
+resolution, surviving a restart and a corrupt state file, and not falling over
+when a webhook target is dead.
+
 **The browser half is not unit-tested** and has not been run against a live
-Shopify admin — there was no browser or store session available where it was
+Shopify admin or storefront — there was no browser or store session available where it was
 written. `plan_from_mapping` is tested; `attach_all` is not. Treat the first
 real run as a test: use `--live` on a single product, check the admin, then do
 the rest.

@@ -7,6 +7,8 @@
     storefront orders            recent orders, and anything odd about them
     storefront report            what the shop did
     storefront run --live        keep checking, on an interval
+    storefront watch --live      24/7: check, alert, repeat
+    storefront storefront-check  walk the live shop in a browser
 """
 
 from __future__ import annotations
@@ -14,11 +16,13 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from shop.client import ShopifyClient, ShopifyError
 
-from . import agent, attach as attach_mod, audit as audit_mod, orders as orders_mod
+from . import agent, alerts as alerts_mod, attach as attach_mod
+from . import audit as audit_mod, orders as orders_mod, synthetic, watch as watch_mod
 from . import queries, report as report_mod
 from .assets import Asset, AssetLedger
 from .config import Config
@@ -256,6 +260,99 @@ def cmd_run(args) -> int:
     return 0
 
 
+def cmd_storefront_check(args) -> int:
+    config = _config(args)
+    if not config.store_domain:
+        print(f"{CROSS} no store_domain in shop.toml")
+        return 1
+    handles = args.product or []
+    if not handles:
+        client = ShopifyClient(config.endpoint, config.token, dry_run=True)
+        try:
+            products = audit_mod.fetch_catalog(client)
+        except ShopifyError as exc:
+            print(f"problem: {exc}")
+            return 1
+        handles = [p["handle"] for p in products
+                   if p.get("status") == "ACTIVE" and p.get("publishedAt")][:3]
+    if not handles:
+        print("nothing published to check")
+        return 1
+
+    print(f"walking {config.store_domain} in a browser...")
+    report = synthetic.check_storefront(
+        config.store_domain, product_handles=handles,
+        collection_handles=args.collection or [], headless=not args.show,
+        try_add_to_cart=not args.no_cart,
+    )
+    for check in report.checks:
+        print(f"  {check.line()}")
+    print()
+    if report.ok:
+        print(f"{TICK} the shop is standing up")
+        return 0
+    print(f"{CROSS} {len(report.failures)} check(s) failed")
+    return 1
+
+
+def _dispatcher(config, args) -> alerts_mod.Dispatcher:
+    return alerts_mod.Dispatcher(
+        state=alerts_mod.AlertState.load(config.alert_state_path),
+        cooldown_minutes=config.alert_cooldown_minutes,
+        console=True,
+        desktop=config.alert_desktop or args.desktop,
+        webhook_url=args.webhook or config.alert_webhook,
+        email=config.alert_email,
+        log_path=config.alert_log_path,
+    )
+
+
+def cmd_watch(args) -> int:
+    config = _config(args)
+    if problems := config.validate():
+        for p in problems:
+            print(f"{CROSS} {p}")
+        return 1
+
+    dispatcher = _dispatcher(config, args)
+    channels = ["console"]
+    if dispatcher.desktop:
+        channels.append("desktop")
+    if dispatcher.webhook_url:
+        channels.append("webhook")
+    if dispatcher.email.get("to"):
+        channels.append("email")
+    channels.append(f"log ({config.alert_log_path})")
+
+    print(f"watching {config.store_domain}")
+    print(f"  every          {config.interval_minutes}m")
+    print(f"  browser check  every {config.storefront_check_minutes}m"
+          + ("" if config.browser_checks and not args.no_browser else "  (off)"))
+    print(f"  alerts to      {', '.join(channels)}")
+    print(f"  repeat after   {config.alert_cooldown_minutes}m")
+    if config.dry_run:
+        print("  dry run -- orders will not be tagged. Use --live to tag.")
+    print("  Ctrl-C to stop\n")
+
+    def on_pass(state, found):
+        stamp = datetime.now().strftime("%H:%M:%S")
+        if not found:
+            print(f"{stamp}  pass {state.passes}: all clear")
+
+    try:
+        watch_mod.run(
+            config, dispatcher,
+            since_days=args.days,
+            storefront_every_minutes=config.storefront_check_minutes,
+            collection_handles=args.collection or [],
+            browser_checks=config.browser_checks and not args.no_browser,
+            on_pass=on_pass,
+        )
+    except KeyboardInterrupt:
+        print("\nstopped")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="storefront", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -284,6 +381,21 @@ def build_parser() -> argparse.ArgumentParser:
     r = sub.add_parser("report", help="what the shop did")
     r.add_argument("--days", type=int, default=7)
 
+    w = sub.add_parser("watch", help="24/7: check, alert, repeat")
+    w.add_argument("--live", action="store_true", help="allow writes (order tagging)")
+    w.add_argument("--days", type=int, default=7)
+    w.add_argument("--interval", type=int, help="minutes between passes")
+    w.add_argument("--desktop", action="store_true", help="desktop notifications")
+    w.add_argument("--webhook", help="Slack/Discord webhook URL")
+    w.add_argument("--collection", action="append", help="collection handle to check")
+    w.add_argument("--no-browser", action="store_true", help="skip browser checks")
+
+    sc = sub.add_parser("storefront-check", help="walk the live shop in a browser")
+    sc.add_argument("--product", action="append", help="product handle")
+    sc.add_argument("--collection", action="append", help="collection handle")
+    sc.add_argument("--show", action="store_true", help="show the browser window")
+    sc.add_argument("--no-cart", action="store_true", help="skip add-to-cart")
+
     run = sub.add_parser("run", help="keep checking")
     run.add_argument("--live", action="store_true")
     run.add_argument("--days", type=int, default=7)
@@ -300,7 +412,8 @@ def main(argv: list[str] | None = None) -> int:
     handlers = {
         None: cmd_doctor, "doctor": cmd_doctor, "audit": cmd_audit,
         "attach": cmd_attach, "assets": cmd_assets, "orders": cmd_orders,
-        "report": cmd_report, "run": cmd_run,
+        "report": cmd_report, "run": cmd_run, "watch": cmd_watch,
+        "storefront-check": cmd_storefront_check,
     }
     try:
         return handlers[args.command](args)

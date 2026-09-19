@@ -37,6 +37,8 @@ class PassResult:
     summary: report_mod.Summary | None = None
     tagged: int = 0
     errors: list[str] = field(default_factory=list)
+    # Handles of live products, so a browser check knows which pages to walk.
+    live_handles: list[str] = field(default_factory=list)
 
     @property
     def blockers(self) -> list:
@@ -77,6 +79,11 @@ def run_once(
     try:
         products = audit.fetch_catalog(client)
         result.audit_report = audit.audit(products, assets_known=ledger.skus)
+        result.live_handles = [
+            h for p in products
+            if p.get("status") == "ACTIVE" and p.get("publishedAt")
+            and (h := p.get("handle"))
+        ]
     except ShopifyError as exc:
         result.errors.append(f"could not read the catalogue: {exc}")
         return result

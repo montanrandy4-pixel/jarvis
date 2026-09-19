@@ -16,8 +16,31 @@ review_above = 250.0
 # Where the product files live on your machine.
 assets_dir = "~/solostack/deliverables"
 
-# How often `storefront run` takes a pass.
+# How often the watch takes a pass.
 interval_minutes = 60
+
+# --- Alerts ---
+# Do not repeat the same alert inside this window. The point of a watcher is
+# that you still read it in a month.
+alert_cooldown_minutes = 60
+
+# Native desktop notification (macOS osascript / Linux notify-send).
+alert_desktop = true
+
+# Slack, Discord, or anything that accepts {"text": "..."}.
+# alert_webhook = "https://hooks.slack.com/services/..."
+
+# Browser checks drive a real Chromium, so they run on their own slower clock.
+browser_checks = true
+storefront_check_minutes = 60
+
+# Email is off unless you fill this in. Use an app password, not your own.
+# [storefront.alert_email]
+# to = "you@example.com"
+# host = "smtp.gmail.com"
+# port = 587
+# username = "you@example.com"
+# password = "app-password-here"
 
 # SKU -> filename, relative to assets_dir. These are the 14 products already
 # in the store; the filenames match what was delivered.

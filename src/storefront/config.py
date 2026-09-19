@@ -41,6 +41,16 @@ class Config:
     interval_minutes: int = 60
     state_dir: Path = field(default_factory=_state_dir)
 
+    # --- Alerting ---
+    # Do not repeat the same alert inside this window.
+    alert_cooldown_minutes: int = 60
+    alert_desktop: bool = False
+    alert_webhook: str = ""          # Slack / Discord / anything taking {"text": ...}
+    alert_email: dict = field(default_factory=dict)
+    # Browser checks are expensive; run them on their own slower clock.
+    storefront_check_minutes: int = 60
+    browser_checks: bool = True
+
     @property
     def token(self) -> str:
         return os.environ.get(self.token_env, "")
@@ -58,6 +68,14 @@ class Config:
     @property
     def ledger_path(self) -> Path:
         return self.state_dir / "assets.json"
+
+    @property
+    def alert_state_path(self) -> Path:
+        return self.state_dir / "alerts.json"
+
+    @property
+    def alert_log_path(self) -> Path:
+        return self.state_dir / "alerts.log"
 
     def resolve_assets(self) -> dict[str, Path]:
         base = Path(self.assets_dir).expanduser() if self.assets_dir else Path.cwd()
