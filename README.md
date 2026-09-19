@@ -210,6 +210,18 @@ shop init && shop doctor && shop plan
 
 See [SHOP.md](SHOP.md) — including what it deliberately will not do.
 
+## Building a game
+
+`game/` holds a Roblox tycoon built alongside this repo — a service-based
+architecture with session-locked saving and a monetization pipeline that is
+wired in from the start rather than bolted on.
+
+```bash
+rojo serve game/default.project.json
+```
+
+See [game/README.md](game/README.md) for the architecture and the phase plan.
+
 ## Limitations
 
 - Small local models call tools less reliably than frontier ones. If it ignores

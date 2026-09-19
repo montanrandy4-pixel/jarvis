@@ -3,6 +3,15 @@
     "omniroute": {
       "type": "http",
       "url": "http://localhost:20128/api/mcp/stream"
+    },
+    "Roblox_Studio": {
+      "type": "stdio",
+      "command": "cmd.exe",
+      "args": [
+        "/c",
+        "cd /d %LOCALAPPDATA%\\Roblox && .\\mcp.bat"
+      ],
+      "env": {}
     }
   }
 }
