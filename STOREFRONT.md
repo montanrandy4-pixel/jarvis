@@ -180,6 +180,37 @@ exactly what is wrong and what to do — *"Rate Calculator: no digital file
 recorded — attach it"*. Paraphrasing that could only make it less precise, and
 would add a dependency that can fail at 3am.
 
+## The 3D workspace
+
+```bash
+storefront serve --live
+```
+
+Opens `http://127.0.0.1:8765` and runs the watch behind it. Every visual
+choice carries information rather than decoration:
+
+| What you see | What it means |
+|---|---|
+| A standing card | One product |
+| Its **height** | Its price — the catalogue reads as a skyline |
+| **Teal** | Deliverable |
+| **Gold** | Needs attention |
+| **Red, breathing** | Cannot be delivered — money being lost right now |
+| The expanding **ring** | A check running, tinted by which one |
+| Falling **motes** | Orders |
+
+Hover any card for its problems. Drag to orbit, scroll to zoom. The panel
+carries live stats, the three check stages, and the alert feed.
+
+**Nothing leaves the machine.** The page is served to localhost only, and the
+browser is only ever sent findings — the API token stays in the agent. There
+is a test asserting the token never appears in a response.
+
+**If the 3D does not load,** the panel still works. The scene needs Three.js
+from a CDN; the HUD deliberately has no dependencies, so a blocked or offline
+CDN costs you the visualisation and nothing else. You get a plain message
+saying so rather than a black rectangle.
+
 ## Running it as a service
 
 macOS, `~/Library/LaunchAgents/com.solostack.watch.plist`, or Linux systemd:
@@ -229,7 +260,7 @@ A failing pass never kills the loop; it logs and waits for the next one.
 
 ## What has actually been tested
 
-59 unit tests covering the audit rules, order triage, the asset ledger
+72 unit tests covering the audit rules, order triage, the asset ledger
 (including digest staleness and a corrupt ledger file), and attachment
 planning. The audit tests lean hard on the blocker cases, because a false "all
 clear" is the one failure that costs a real customer real money.
@@ -237,6 +268,16 @@ clear" is the one failure that costs a real customer real money.
 Alert dedup is covered hard — firing once, staying quiet, reporting
 resolution, surviving a restart and a corrupt state file, and not falling over
 when a webhook target is dead.
+
+The workspace server is tested end to end over real HTTP: it serves the page
+and assets, refuses path traversal outside its web root, caps listeners, drops
+a listener that cannot keep up rather than back-pressuring the watch loop, and
+never puts the token in a response.
+
+**The 3D scene itself has never been rendered.** The CDN was unreachable where
+it was written, so WebGL output is unverified — the JavaScript parses, the data
+reaching it is tested, and the fallback path is deliberate, but the first time
+anyone sees the scene will be the first time it runs.
 
 **The browser half is not unit-tested** and has not been run against a live
 Shopify admin or storefront — there was no browser or store session available where it was

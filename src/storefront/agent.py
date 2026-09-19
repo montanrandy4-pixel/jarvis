@@ -39,6 +39,9 @@ class PassResult:
     errors: list[str] = field(default_factory=list)
     # Handles of live products, so a browser check knows which pages to walk.
     live_handles: list[str] = field(default_factory=list)
+    # Title, sku, price and handle per product, for anything drawing the
+    # catalogue rather than just judging it.
+    catalog: list[dict] = field(default_factory=list)
 
     @property
     def blockers(self) -> list:
@@ -84,6 +87,7 @@ def run_once(
             if p.get("status") == "ACTIVE" and p.get("publishedAt")
             and (h := p.get("handle"))
         ]
+        result.catalog = [_describe(p) for p in products]
     except ShopifyError as exc:
         result.errors.append(f"could not read the catalogue: {exc}")
         return result
@@ -117,6 +121,25 @@ def run_once(
         ))
 
     return result
+
+
+def _describe(product: dict) -> dict:
+    """The few fields a view needs, unescaped and flattened."""
+    import html
+
+    variants = (product.get("variants") or {}).get("nodes") or []
+    first = variants[0] if variants else {}
+    try:
+        price = float(first.get("price") or 0)
+    except (TypeError, ValueError):
+        price = 0.0
+    return {
+        "title": html.unescape(str(product.get("title") or "")).strip(),
+        "sku": first.get("sku") or "",
+        "price": price,
+        "handle": product.get("handle") or "",
+        "status": product.get("status") or "",
+    }
 
 
 def run_forever(config: Config, *, since_days: int = 7, on_pass=None) -> None:

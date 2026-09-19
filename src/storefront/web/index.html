@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shop Workspace</title>
+<link rel="stylesheet" href="/static/styles.css">
+<script type="importmap">
+{"imports":{
+  "three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+}}
+</script>
+</head>
+<body>
+<canvas id="stage"></canvas>
+
+<header class="hud hud-top">
+  <div class="shop">
+    <span class="dot" id="pulse"></span>
+    <strong id="shopName">connecting…</strong>
+    <span class="muted" id="shopDomain"></span>
+    <span class="badge" id="dryRun" hidden>dry run</span>
+  </div>
+  <div class="stat-row">
+    <div class="stat"><span class="label">revenue</span><span class="value" id="revenue">—</span></div>
+    <div class="stat"><span class="label">orders</span><span class="value" id="orders">—</span></div>
+    <div class="stat"><span class="label">blockers</span><span class="value bad" id="blockers">—</span></div>
+    <div class="stat"><span class="label">next pass</span><span class="value" id="countdown">—</span></div>
+  </div>
+</header>
+
+<aside class="hud hud-side">
+  <h2>Activity</h2>
+  <div class="stage-row" id="stages">
+    <span class="stage" data-stage="catalogue">catalogue</span>
+    <span class="stage" data-stage="orders">orders</span>
+    <span class="stage" data-stage="storefront">storefront</span>
+  </div>
+  <ol id="feed" class="feed"><li class="muted">waiting for the first pass…</li></ol>
+</aside>
+
+<div class="hud hud-legend">
+  <span><i class="swatch ok"></i>deliverable</span>
+  <span><i class="swatch warn"></i>needs attention</span>
+  <span><i class="swatch bad"></i>cannot be delivered</span>
+  <span class="muted">height = price · drag to orbit</span>
+</div>
+
+<div class="tooltip" id="tip" hidden></div>
+
+<script type="module" src="/static/hud.js"></script>
+<script type="module" src="/static/workspace.js"></script>
+<script>
+  // The scene needs Three.js from a CDN. If that cannot load, say so plainly
+  // rather than leaving a black rectangle -- the panel still works.
+  addEventListener('error', (e) => {
+    if (!String(e.filename || e.message).match(/three|workspace\.js/i)) return;
+    const c = document.getElementById('stage');
+    if (c) c.style.display = 'none';
+    document.body.insertAdjacentHTML('beforeend',
+      '<div class="hud hud-fallback">3D scene unavailable &mdash; Three.js could not ' +
+      'load from the CDN. Live data above is unaffected.</div>');
+  }, true);
+</script>
+</body>
+</html>

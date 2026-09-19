@@ -43,6 +43,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 jarvis = ["web/*"]
+storefront = ["web/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,0 +1,79 @@
+:root{
+  --ink:#15171C; --panel:rgba(30,33,40,.82); --line:rgba(244,241,234,.14);
+  --cream:#F4F1EA; --muted:#8A8F9A;
+  --ok:#5FB49C; --warn:#D9A441; --bad:#E0603F;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--ink);color:var(--cream);
+  font:14px/1.5 ui-sans-serif,-apple-system,"Segoe UI",Inter,system-ui,sans-serif;
+  overflow:hidden;-webkit-font-smoothing:antialiased}
+#stage{position:fixed;inset:0;display:block;width:100%;height:100%}
+
+.hud{position:fixed;z-index:2;background:var(--panel);backdrop-filter:blur(14px);
+  border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+.hud-top{top:16px;left:16px;right:16px;display:flex;flex-wrap:wrap;gap:16px;
+  align-items:center;justify-content:space-between}
+.shop{display:flex;align-items:center;gap:10px;min-width:0}
+.shop strong{font-size:15px;letter-spacing:.2px}
+.muted{color:var(--muted)}
+.badge{font-size:11px;padding:2px 8px;border-radius:999px;
+  border:1px solid var(--line);color:var(--warn)}
+
+.dot{width:9px;height:9px;border-radius:50%;background:var(--muted);flex:none;
+  transition:background .3s}
+.dot.live{background:var(--ok);box-shadow:0 0 0 0 rgba(95,180,156,.6);
+  animation:ping 2.4s ease-out infinite}
+@keyframes ping{
+  0%{box-shadow:0 0 0 0 rgba(95,180,156,.55)}
+  70%{box-shadow:0 0 0 11px rgba(95,180,156,0)}
+  100%{box-shadow:0 0 0 0 rgba(95,180,156,0)}}
+
+.stat-row{display:flex;gap:22px;flex-wrap:wrap}
+.stat{display:flex;flex-direction:column;gap:1px;min-width:74px}
+.stat .label{font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;color:var(--muted)}
+.stat .value{font-size:19px;font-variant-numeric:tabular-nums;font-weight:600}
+.stat .value.bad{color:var(--bad)}
+.stat .value.bad[data-zero="1"]{color:var(--ok)}
+
+.hud-side{top:108px;right:16px;width:326px;max-height:calc(100vh - 210px);
+  display:flex;flex-direction:column;gap:10px}
+.hud-side h2{margin:0;font-size:11px;text-transform:uppercase;
+  letter-spacing:.1em;color:var(--muted);font-weight:600}
+.stage-row{display:flex;gap:6px}
+.stage{flex:1;text-align:center;font-size:10.5px;padding:5px 4px;border-radius:7px;
+  border:1px solid var(--line);color:var(--muted);transition:all .25s}
+.stage.active{color:var(--ink);background:var(--ok);border-color:transparent;font-weight:600}
+.stage[data-stage=storefront].active{background:#8FB3E8}
+.stage[data-stage=orders].active{background:var(--warn)}
+
+.feed{list-style:none;margin:0;padding:0;overflow-y:auto;display:flex;
+  flex-direction:column;gap:7px;scrollbar-width:thin}
+.feed li{padding:8px 10px;border-radius:9px;background:rgba(244,241,234,.045);
+  border-left:2px solid var(--line);font-size:12.5px;animation:slide .35s ease-out}
+.feed li.critical{border-left-color:var(--bad)}
+.feed li.warning{border-left-color:var(--warn)}
+.feed li.info{border-left-color:var(--ok)}
+.feed li.resolved{border-left-color:var(--ok);opacity:.72}
+.feed li .t{display:block;font-size:10px;color:var(--muted);margin-top:3px}
+@keyframes slide{from{opacity:0;transform:translateX(10px)}to{opacity:1;transform:none}}
+
+.hud-legend{left:16px;bottom:16px;display:flex;gap:16px;flex-wrap:wrap;
+  align-items:center;font-size:11.5px;padding:10px 14px}
+.swatch{width:9px;height:9px;border-radius:2px;display:inline-block;margin-right:6px}
+.swatch.ok{background:var(--ok)} .swatch.warn{background:var(--warn)}
+.swatch.bad{background:var(--bad)}
+
+.tooltip{position:fixed;z-index:3;pointer-events:none;max-width:290px;
+  background:rgba(21,23,28,.96);border:1px solid var(--line);border-radius:10px;
+  padding:9px 11px;font-size:12.5px;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+.tooltip b{display:block;margin-bottom:4px}
+.tooltip .p{color:var(--bad);font-size:11.5px;margin-top:3px}
+
+@media (max-width:820px){
+  .hud-side{position:fixed;left:16px;right:16px;width:auto;top:auto;
+    bottom:76px;max-height:34vh}
+  .hud-legend{display:none}
+}
+
+.hud-fallback{left:50%;top:50%;transform:translate(-50%,-50%);max-width:380px;
+  text-align:center;color:var(--muted);font-size:12.5px;line-height:1.6}

@@ -9,6 +9,7 @@
     storefront run --live        keep checking, on an interval
     storefront watch --live      24/7: check, alert, repeat
     storefront storefront-check  walk the live shop in a browser
+    storefront serve --live      a 3D workspace showing what it is doing
 """
 
 from __future__ import annotations
@@ -22,7 +23,8 @@ from pathlib import Path
 from shop.client import ShopifyClient, ShopifyError
 
 from . import agent, alerts as alerts_mod, attach as attach_mod
-from . import audit as audit_mod, orders as orders_mod, synthetic, watch as watch_mod
+from . import audit as audit_mod, orders as orders_mod, server as server_mod
+from . import synthetic, watch as watch_mod
 from . import queries, report as report_mod
 from .assets import Asset, AssetLedger
 from .config import Config
@@ -353,6 +355,23 @@ def cmd_watch(args) -> int:
     return 0
 
 
+def cmd_serve(args) -> int:
+    config = _config(args)
+    if problems := config.validate():
+        for p in problems:
+            print(f"{CROSS} {p}")
+        return 1
+    dispatcher = _dispatcher(config, args)
+    if config.dry_run:
+        print("dry run -- orders will not be tagged. Use --live to tag.")
+    return server_mod.serve(
+        config, dispatcher,
+        port=args.port, since_days=args.days,
+        browser_checks=config.browser_checks and not args.no_browser,
+        open_browser=not args.no_open,
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="storefront", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -390,6 +409,16 @@ def build_parser() -> argparse.ArgumentParser:
     w.add_argument("--collection", action="append", help="collection handle to check")
     w.add_argument("--no-browser", action="store_true", help="skip browser checks")
 
+    sv = sub.add_parser("serve", help="a 3D workspace showing what it is doing")
+    sv.add_argument("--live", action="store_true", help="allow writes (order tagging)")
+    sv.add_argument("--port", type=int, default=8765)
+    sv.add_argument("--days", type=int, default=7)
+    sv.add_argument("--interval", type=int, help="minutes between passes")
+    sv.add_argument("--desktop", action="store_true", help="desktop notifications too")
+    sv.add_argument("--webhook", help="Slack/Discord webhook URL")
+    sv.add_argument("--no-browser", action="store_true", help="skip storefront checks")
+    sv.add_argument("--no-open", action="store_true", help="do not open a browser tab")
+
     sc = sub.add_parser("storefront-check", help="walk the live shop in a browser")
     sc.add_argument("--product", action="append", help="product handle")
     sc.add_argument("--collection", action="append", help="collection handle")
@@ -413,7 +442,7 @@ def main(argv: list[str] | None = None) -> int:
         None: cmd_doctor, "doctor": cmd_doctor, "audit": cmd_audit,
         "attach": cmd_attach, "assets": cmd_assets, "orders": cmd_orders,
         "report": cmd_report, "run": cmd_run, "watch": cmd_watch,
-        "storefront-check": cmd_storefront_check,
+        "storefront-check": cmd_storefront_check, "serve": cmd_serve,
     }
     try:
         return handlers[args.command](args)
