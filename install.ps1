@@ -6,6 +6,8 @@ start-at-login.
 
 Easiest: double-click install.cmd. Or, in PowerShell:
     powershell -ExecutionPolicy Bypass -File install.ps1 [-Yes] [-AutoStart] [-NoAutoStart] [-Model NAME]
+or with nothing downloaded first, paste into a PowerShell window:
+    irm https://raw.githubusercontent.com/montanrandy4-pixel/jarvis/HEAD/install.ps1 | iex
 
 Safe to run again: it updates what is already there.
 #>
@@ -25,7 +27,10 @@ function Step($text) { Write-Host "`n> $text" -ForegroundColor Cyan }
 function Say($text) { Write-Host "  $text" }
 function Fail($text) {
     Write-Host "`nX $text" -ForegroundColor Red
-    exit 1
+    # Run as a file (install.cmd), exit. Pasted into a PowerShell window, stop
+    # without closing it, so the message stays on screen.
+    if ($PSCommandPath) { exit 1 }
+    throw 'JARVIS was not installed. See the message above.'
 }
 function Ask($question, [bool]$default = $true) {
     if ($Yes) { return $default }

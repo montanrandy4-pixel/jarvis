@@ -398,7 +398,7 @@ def serve(config, *, open_browser: bool | None = None, fragment: str = "") -> in
     print(f"  status  {'ready' if ready else 'NOT READY -- ' + detail}")
     if not ready:
         print("\nThe app will still open; it will work once the model is reachable.")
-    print("\nPress Ctrl-C to stop, or use Shut down in the app's Details panel.")
+    print("\nPress Ctrl-C to stop, or use Shut down in the app's Settings.")
 
     if should_open:
         threading.Timer(
