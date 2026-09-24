@@ -15,6 +15,7 @@ class Timer:
     label: str
     fires_at: float
     handle: threading.Timer
+    duration: float = 0.0
 
     def remaining(self) -> float:
         return max(0.0, self.fires_at - time.time())
@@ -47,6 +48,7 @@ class TimerService:
             label=label,
             fires_at=time.time() + seconds,
             handle=handle,
+            duration=seconds,
         )
         with self._lock:
             self._timers[timer_id] = timer

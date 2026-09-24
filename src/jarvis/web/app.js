@@ -1,27 +1,37 @@
-/* JARVIS app front end: streaming replies, speech in and out. */
+/* JARVIS app front end: the HUD, streaming replies, speech in and out. */
 (() => {
   "use strict";
 
   const $ = (id) => document.getElementById(id);
+  const all = (selector) => document.querySelectorAll(selector);
   const el = {
     orb: $("orb"), caption: $("orb-caption"), transcript: $("transcript"),
     composer: $("composer"), input: $("input"), mic: $("mic"), send: $("send"),
     statusDot: $("status-dot"), statusText: $("status-text"),
     panel: $("panel"), panelToggle: $("panel-toggle"),
     panelModel: $("panel-model"), panelDetail: $("panel-detail"),
-    panelTools: $("panel-tools"), panelMemory: $("panel-memory"),
+    panelTools: $("panel-tools"),
     voiceToggle: $("voice-toggle"), wakeToggle: $("wake-toggle"),
     wakeWord: $("wake-word"), voiceSupport: $("voice-support"),
     confirmSlot: $("confirm-slot"), reset: $("reset"), name: $("assistant-name"),
+    install: $("install"), shutdown: $("shutdown"),
+    clockSec: $("clock-sec"), clockDate: $("clock-date"),
   };
+
+  const reactor = window.createReactor($("reactor"));
 
   const state = {
     busy: false,
+    offline: false,
+    booted: false,
     speakReplies: load("speak", true),
     wakeListening: load("wake", false),
     wakeWord: "hey jarvis",
+    addressAs: "sir",
     bubble: null,
     toolRow: null,
+    timers: [],
+    kick: 0,              // A burst of reactor energy when a word is spoken.
   };
 
   function load(key, fallback) {
@@ -34,44 +44,86 @@
     try { localStorage.setItem("jarvis." + key, JSON.stringify(value)); } catch {}
   }
 
-  /* ---------- orb + status ---------- */
+  function post(path, payload = {}) {
+    return fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  /* ---------- reactor + status ---------- */
 
   const CAPTIONS = {
-    idle: "Tap the orb, or just type.",
-    listening: "Listening…",
-    thinking: "Thinking…",
-    speaking: "",
-    error: "Something needs attention.",
+    idle: "Standing by",
+    listening: "Listening",
+    thinking: "Processing",
+    speaking: "Speaking",
+    error: "Attention required",
   };
 
   function setOrb(mode, caption) {
     el.orb.dataset.state = mode;
+    el.caption.dataset.state = mode;
+    reactor.setMode(mode);
+    const live = caption !== undefined && caption !== CAPTIONS[mode];
+    el.caption.toggleAttribute("data-live", Boolean(live && caption));
     el.caption.textContent = caption ?? CAPTIONS[mode] ?? "";
   }
 
   function setBusy(busy) {
     state.busy = busy;
-    el.send.disabled = busy;
-    el.input.disabled = busy;
-    el.input.placeholder = busy ? "JARVIS is working…" : "Ask JARVIS…";
-    if (!busy) el.input.focus();
+    el.send.disabled = busy || state.offline;
+    el.input.disabled = busy || state.offline;
+    el.input.placeholder = busy ? "JARVIS is working…" : "Speak or type a command…";
+    if (!busy && !state.offline) el.input.focus();
   }
 
-  /* ---------- transcript ---------- */
+  /* ---------- the log ---------- */
+
+  function stamp() {
+    return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  }
+
+  function addEntry(who, label) {
+    const item = document.createElement("li");
+    item.className = `entry ${who}`;
+    const meta = document.createElement("p");
+    meta.className = "meta";
+    const name = document.createElement("span");
+    name.textContent = label;
+    const time = document.createElement("time");
+    time.textContent = stamp();
+    meta.append(name, time);
+    const text = document.createElement("p");
+    text.className = "text";
+    item.append(meta, text);
+    el.transcript.append(item);
+    return text;
+  }
 
   function addTurn(who, text, { error = false } = {}) {
-    const item = document.createElement("li");
-    item.className = `turn ${who}`;
-    const label = document.createElement("p");
-    label.className = "who";
-    label.textContent = who === "user" ? "You" : el.name.textContent;
-    const bubble = document.createElement("div");
-    bubble.className = "bubble" + (error ? " error" : "");
-    bubble.textContent = text;
-    item.append(label, bubble);
-    el.transcript.append(item);
+    const body = addEntry(who, who === "user" ? "You" : el.name.textContent);
+    body.textContent = text;
+    if (error) body.classList.add("error");
     scrollDown();
-    return bubble;
+    return body;
+  }
+
+  /* A system line: parts are strings, or [text, "ok" | "warn"] to highlight. */
+  function addSystem(...parts) {
+    const body = addEntry("system", "System");
+    for (const part of parts) {
+      if (Array.isArray(part)) {
+        const b = document.createElement("b");
+        b.textContent = part[0];
+        if (part[1] === "warn") b.className = "warn";
+        body.append(b);
+      } else {
+        body.append(part);
+      }
+    }
+    scrollDown();
   }
 
   function scrollDown() {
@@ -120,6 +172,7 @@
       utterance.pitch = 0.95;
       const voice = pickVoice();
       if (voice) utterance.voice = voice;
+      utterance.onboundary = () => { state.kick = 1; };
       utterance.onend = () => {
         if (!synth.speaking && !state.busy) setOrb("idle");
       };
@@ -136,7 +189,7 @@
     if (cachedVoice !== undefined) return cachedVoice;
     const voices = synth ? synth.getVoices() : [];
     if (!voices.length) return null;           // Not loaded yet; try next time.
-    const wanted = [/daniel/i, /google uk english male/i, /arthur/i, /en-GB/i];
+    const wanted = [/daniel/i, /google uk english male/i, /ryan/i, /arthur/i, /en-GB/i];
     cachedVoice =
       wanted.map((re) => voices.find((v) => re.test(v.name) || re.test(v.lang)))
             .find(Boolean) || voices.find((v) => /^en/i.test(v.lang)) || null;
@@ -144,10 +197,55 @@
   }
   if (synth) synth.onvoiceschanged = () => { cachedVoice = undefined; };
 
+  /* ---------- reactor energy: your voice in, its voice out ---------- */
+
+  const meter = {
+    stream: null, context: null, analyser: null, data: null,
+    async start() {
+      if (this.stream || !navigator.mediaDevices?.getUserMedia) return;
+      try {
+        this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        this.context = new AudioContext();
+        this.analyser = this.context.createAnalyser();
+        this.analyser.fftSize = 512;
+        this.data = new Uint8Array(this.analyser.fftSize);
+        this.context.createMediaStreamSource(this.stream).connect(this.analyser);
+      } catch { this.stop(); }
+    },
+    level() {
+      if (!this.analyser) return null;
+      this.analyser.getByteTimeDomainData(this.data);
+      let sum = 0;
+      for (const v of this.data) { const x = (v - 128) / 128; sum += x * x; }
+      return Math.min(1, Math.sqrt(sum / this.data.length) * 4.5);
+    },
+    stop() {
+      this.stream?.getTracks().forEach((t) => t.stop());
+      this.context?.close().catch(() => {});
+      this.stream = this.context = this.analyser = null;
+    },
+  };
+
+  function pumpEnergy(now) {
+    const mode = el.orb.dataset.state;
+    if (mode === "listening") {
+      const heard = meter.level();
+      reactor.setLevel(heard ?? 0.3 + 0.15 * Math.sin(now / 180));
+    } else if (synth?.speaking) {
+      state.kick *= 0.9;
+      const talk = 0.45 + 0.2 * Math.sin(now / 75) * Math.sin(now / 310);
+      reactor.setLevel(Math.max(talk, state.kick));
+    } else {
+      reactor.setLevel(0.15);
+    }
+    requestAnimationFrame(pumpEnergy);
+  }
+  requestAnimationFrame(pumpEnergy);
+
   /* ---------- talking to the server ---------- */
 
   async function send(text) {
-    if (state.busy || !text.trim()) return;
+    if (state.busy || state.offline || !text.trim()) return;
     setBusy(true);
     speech.stop();
     addTurn("user", text);
@@ -158,11 +256,7 @@
 
     let response;
     try {
-      response = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
-      });
+      response = await post("/api/chat", { text });
     } catch {
       return finish({ error: "I lost the connection to the app." });
     }
@@ -196,11 +290,12 @@
       case "text":
         state.bubble.textContent += event.value;
         speech.feed(event.value);
-        if (el.orb.dataset.state !== "speaking") setOrb("speaking", "");
+        if (el.orb.dataset.state !== "speaking") setOrb("speaking");
         scrollDown();
         break;
       case "tool":
         addTool(event.label, event.error);
+        refreshTelemetry();
         break;
       case "confirm":
         askPermission(event);
@@ -208,6 +303,7 @@
       case "announce":
         addTurn("jarvis", event.text);
         speech.utter(event.text);
+        refreshTelemetry();
         break;
       case "done":
         finish(event);
@@ -242,7 +338,9 @@
     const card = document.createElement("div");
     card.className = "confirm";
     const question = document.createElement("p");
-    question.innerHTML = `<strong>Permission needed.</strong> Shall I ${escapeHtml(event.summary)}?`;
+    const heading = document.createElement("strong");
+    heading.textContent = "Permission required";
+    question.append(heading, `Shall I ${event.summary}?`);
     const allow = document.createElement("button");
     allow.className = "allow";
     allow.textContent = "Allow";
@@ -256,21 +354,11 @@
     const answer = (allowed) => {
       el.confirmSlot.hidden = true;
       el.confirmSlot.innerHTML = "";
-      fetch("/api/confirm", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: event.id, allow: allowed }),
-      }).catch(() => {});
+      post("/api/confirm", { id: event.id, allow: allowed }).catch(() => {});
     };
     allow.onclick = () => answer(true);
     deny.onclick = () => answer(false);
     allow.focus();
-  }
-
-  function escapeHtml(text) {
-    const div = document.createElement("div");
-    div.textContent = text;
-    return div.innerHTML;
   }
 
   /* ---------- listening ---------- */
@@ -306,7 +394,7 @@
         setMic(false);
         send(said);
       } else {
-        setOrb("listening", said || "Listening…");
+        setOrb("listening", said || CAPTIONS.listening);
       }
     };
     recogniser.onerror = (event) => {
@@ -334,6 +422,7 @@
     const current = recogniser;
     recogniser = null;
     mode = "off";
+    meter.stop();
     if (current) { try { current.abort(); } catch {} }
   }
 
@@ -345,6 +434,7 @@
   function listenForCommand() {
     speech.stop();
     if (startRecognition("command")) {
+      meter.start();
       setMic(true);
       setOrb("listening");
     }
@@ -359,13 +449,124 @@
 
   async function pollAnnouncements() {
     // A long poll, so a timer going off reaches you without a page refresh.
-    for (;;) {
+    while (!state.offline) {
       try {
         const response = await fetch("/api/events");
         const data = await response.json();
         for (const event of data.events || []) handle(event);
       } catch {
         await new Promise((resume) => setTimeout(resume, 3000));
+      }
+    }
+  }
+
+  /* ---------- telemetry ---------- */
+
+  function setMetric(name, text) {
+    for (const node of all(`[data-metric="${name}"]`)) node.textContent = text;
+  }
+
+  function setGauge(name, pct, text, note, level) {
+    setMetric(name, text);
+    const gauge = document.querySelector(`[data-gauge="${name}"]`);
+    if (gauge) {
+      gauge.querySelector(".g-bar i").style.setProperty("--pct", `${pct ?? 0}%`);
+      gauge.dataset.level = level ?? (pct >= 95 ? "critical" : pct >= 85 ? "high" : "normal");
+    }
+    const noteEl = document.querySelector(`[data-note="${name}"]`);
+    if (noteEl) noteEl.textContent = note || " ";
+  }
+
+  function uptime(seconds) {
+    if (seconds == null) return "—";
+    const d = Math.floor(seconds / 86400);
+    const h = Math.floor((seconds % 86400) / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`;
+  }
+
+  async function refreshTelemetry() {
+    let data;
+    try {
+      data = await (await fetch("/api/telemetry")).json();
+    } catch { return; }
+    const pct = (v) => (v == null ? "—" : `${Math.round(v)}%`);
+
+    setGauge("cpu", data.cpu_pct, pct(data.cpu_pct),
+      data.cpus ? `${data.cpus} cores` : "");
+    const mem = data.memory;
+    setGauge("memory", mem?.used_pct, pct(mem?.used_pct),
+      mem ? `${mem.available_gb} of ${mem.total_gb} GB free` : "unavailable");
+    const disk = data.disk;
+    setGauge("disk", disk?.used_pct, pct(disk?.used_pct),
+      disk ? `${disk.free_gb} GB free` : "unavailable");
+    const bat = data.battery;
+    if (bat) {
+      const charging = /charg|full/.test(bat.status) && !/discharg/.test(bat.status);
+      const level = charging ? "normal" : bat.pct <= 10 ? "critical" : bat.pct <= 20 ? "high" : "normal";
+      setGauge("battery", bat.pct, `${bat.pct}%`, bat.status, level);
+    } else {
+      setGauge("battery", 100, "AC", "mains power", "normal");
+    }
+    setMetric("host", data.host || "—");
+    setMetric("uptime", uptime(data.uptime_s));
+
+    const now = Date.now();
+    state.timers = (data.timers || []).map((t) => ({
+      ...t, ends: now + t.remaining_s * 1000,
+    }));
+    renderTimers();
+  }
+
+  const clockFormat = new Intl.DateTimeFormat([], { hour: "2-digit", minute: "2-digit" });
+
+  function clockTick() {
+    const now = new Date();
+    // Big hours and minutes; seconds and any AM/PM ride small beside them.
+    const parts = clockFormat.formatToParts(now);
+    const period = parts.find((p) => p.type === "dayPeriod")?.value ?? "";
+    const main = parts.filter((p) => p.type !== "dayPeriod").map((p) => p.value).join("").trim();
+    setMetric("clock", main);
+    el.clockSec.textContent = ":" + String(now.getSeconds()).padStart(2, "0") + (period ? " " + period : "");
+    el.clockDate.textContent = now.toLocaleDateString([], {
+      weekday: "short", day: "numeric", month: "short", year: "numeric",
+    });
+    if (state.timers.length) renderTimers();
+  }
+
+  function renderTimers() {
+    const now = Date.now();
+    for (const list of all('[data-list="timers"]')) {
+      list.innerHTML = "";
+      const live = state.timers.filter((t) => t.ends > now - 1000);
+      if (!live.length) {
+        const empty = document.createElement("li");
+        empty.className = "empty";
+        empty.textContent = "None running. Try “set a timer for ten minutes”.";
+        list.append(empty);
+        continue;
+      }
+      for (const timer of live) {
+        const left = Math.max(0, Math.round((timer.ends - now) / 1000));
+        const li = document.createElement("li");
+        const head = document.createElement("div");
+        head.className = "t-head";
+        const label = document.createElement("span");
+        label.textContent = timer.label || `Timer ${timer.id}`;
+        const count = document.createElement("span");
+        count.className = "t-left";
+        const h = Math.floor(left / 3600);
+        const m = Math.floor((left % 3600) / 60);
+        const s = String(left % 60).padStart(2, "0");
+        count.textContent = h ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
+        head.append(label, count);
+        const bar = document.createElement("div");
+        bar.className = "t-bar";
+        const fill = document.createElement("i");
+        fill.style.width = `${timer.duration_s ? (100 * left) / timer.duration_s : 0}%`;
+        bar.append(fill);
+        li.append(head, bar);
+        list.append(li);
       }
     }
   }
@@ -378,14 +579,18 @@
       data = await (await fetch("/api/state")).json();
     } catch {
       el.statusDot.dataset.state = "error";
-      el.statusText.textContent = "app not responding";
-      return;
+      el.statusText.textContent = "App not responding";
+      return null;
     }
     el.name.textContent = data.name || "JARVIS";
+    document.title = el.name.textContent;
     state.wakeWord = data.wake_word || "hey jarvis";
+    state.addressAs = data.user_name || data.address_as || "";
     el.wakeWord.textContent = state.wakeWord;
     el.statusDot.dataset.state = data.ready ? "ready" : "error";
-    el.statusText.textContent = data.ready ? data.model : data.detail;
+    el.statusText.textContent = data.ready ? `Online · ${data.model}` : "Model offline";
+    el.statusText.title = data.detail || "";
+    setMetric("model", data.model || "—");
     el.panelModel.textContent = `${data.model} via ${data.backend}`;
     el.panelDetail.textContent = data.detail;
     el.panelTools.innerHTML = "";
@@ -394,28 +599,71 @@
       li.textContent = tool;
       el.panelTools.append(li);
     }
-    el.panelMemory.innerHTML = "";
-    for (const item of data.memories || []) {
-      const li = document.createElement("li");
-      const text = document.createElement("span");
-      text.textContent = item.text;
-      const remove = document.createElement("button");
-      remove.textContent = "×";
-      remove.title = "Forget this";
-      remove.onclick = async () => {
-        await fetch("/api/forget", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: item.id }),
-        });
-        refreshState();
-      };
-      li.append(text, remove);
-      el.panelMemory.append(li);
+    renderMemory(data.memories || []);
+    return data;
+  }
+
+  function renderMemory(memories) {
+    for (const list of all('[data-list="memory"]')) {
+      list.innerHTML = "";
+      if (!memories.length) {
+        const empty = document.createElement("li");
+        empty.className = "empty";
+        empty.textContent = "Nothing stored yet. Tell me something worth remembering.";
+        list.append(empty);
+        continue;
+      }
+      for (const item of memories) {
+        const li = document.createElement("li");
+        const text = document.createElement("span");
+        text.textContent = item.text;
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.textContent = "×";
+        remove.title = "Forget this";
+        remove.setAttribute("aria-label", `Forget: ${item.text}`);
+        remove.onclick = async () => {
+          await post("/api/forget", { id: item.id }).catch(() => {});
+          refreshState();
+        };
+        li.append(text, remove);
+        list.append(li);
+      }
     }
-    if (!data.memories?.length) {
-      el.panelMemory.innerHTML = '<li class="muted small">Nothing yet.</li>';
+  }
+
+  /* ---------- start-up ---------- */
+
+  function greeting() {
+    const hour = new Date().getHours();
+    const part = hour < 5 ? "evening" : hour < 12 ? "morning" : hour < 18 ? "afternoon" : "evening";
+    const who = state.addressAs ? `, ${state.addressAs}` : "";
+    return `Good ${part}${who}.`;
+  }
+
+  async function boot() {
+    const data = await refreshState();
+    if (state.booted) return;
+    state.booted = true;
+    const pause = (ms) => new Promise((resume) => setTimeout(resume, ms));
+    if (!data) {
+      addSystem("Cannot reach the JARVIS app. ", ["Is it still running?", "warn"]);
+      return;
     }
+    addSystem("Arc reactor ", ["online", "ok"], ` · ${data.tools.length} tools loaded`);
+    await pause(160);
+    if (data.ready) {
+      addSystem(`Language model ${data.model} `, ["ready", "ok"]);
+    } else {
+      addSystem(`Language model ${data.model} `, ["offline", "warn"], ` · ${data.detail}`);
+    }
+    await pause(160);
+    const count = data.memories.length;
+    addSystem(`Memory core · ${count} ${count === 1 ? "entry" : "entries"}`);
+    await pause(240);
+    addTurn("jarvis", data.ready
+      ? `${greeting()} All systems are online. How can I help?`
+      : `${greeting()} My language model is offline, so I can't answer yet. The line above says how to fix it.`);
   }
 
   /* ---------- wiring ---------- */
@@ -436,10 +684,11 @@
     if (state.busy || synth?.speaking) {
       // Tapping during a reply is how you interrupt it.
       speech.stop();
-      fetch("/api/cancel", { method: "POST" }).catch(() => {});
+      post("/api/cancel").catch(() => {});
       setOrb("idle");
       return;
     }
+    if (mode === "command") { stopRecognition(); setMic(false); return; }
     listenForCommand();
   });
 
@@ -466,18 +715,61 @@
   });
 
   el.reset.addEventListener("click", async () => {
-    await fetch("/api/reset", { method: "POST" });
+    await post("/api/reset").catch(() => {});
     el.transcript.innerHTML = "";
     speech.stop();
     setOrb("idle");
   });
 
+  let shutdownArmed = null;
+  el.shutdown.addEventListener("click", async () => {
+    if (!shutdownArmed) {
+      el.shutdown.textContent = "Tap again to shut down";
+      shutdownArmed = setTimeout(() => {
+        shutdownArmed = null;
+        el.shutdown.textContent = "Shut down JARVIS";
+      }, 4000);
+      return;
+    }
+    clearTimeout(shutdownArmed);
+    await post("/api/shutdown").catch(() => {});
+    state.offline = true;
+    stopRecognition();
+    speech.stop();
+    setBusy(false);
+    el.panelToggle.click();
+    el.statusDot.dataset.state = "error";
+    el.statusText.textContent = "Shut down";
+    setOrb("error", "Offline");
+    addSystem("JARVIS has shut down. Close this window, or open JARVIS again to restart it.");
+  });
+
+  // Chrome and Edge offer to install the app; surface that as a button.
+  let installPrompt = null;
+  window.addEventListener("beforeinstallprompt", (event) => {
+    event.preventDefault();
+    installPrompt = event;
+    el.install.hidden = false;
+  });
+  el.install.addEventListener("click", async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    await installPrompt.userChoice.catch(() => {});
+    installPrompt = null;
+    el.install.hidden = true;
+  });
+  window.addEventListener("appinstalled", () => { el.install.hidden = true; });
+
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       speech.stop();
-      if (state.busy) fetch("/api/cancel", { method: "POST" }).catch(() => {});
+      if (state.busy) post("/api/cancel").catch(() => {});
       if (!el.panel.hidden) el.panelToggle.click();
     }
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) refreshTelemetry();
   });
 
   /* ---------- start ---------- */
@@ -496,8 +788,13 @@
   }
   if (!synth) el.voiceToggle.disabled = true;
   setOrb("idle");
-  refreshState();
+  clockTick();
+  setInterval(clockTick, 1000);
+  refreshTelemetry();
+  setInterval(() => { if (!document.hidden && !state.offline) refreshTelemetry(); }, 5000);
+  boot();
   pollAnnouncements();
-  if (state.wakeListening) listenForWake();
+  if (location.hash === "#listen") listenForCommand();
+  else if (state.wakeListening) listenForWake();
   el.input.focus();
 })();

@@ -11,20 +11,25 @@ import json
 import logging
 import mimetypes
 import queue
+import sys
 import threading
-import time
 import uuid
-import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import urlsplit
 
+from . import __version__
 from .agent import Agent
 from .backends import BackendError
+from .launcher import LOOPBACK, local_url, open_window, running_instance
 from .memory import MemoryStore
-from .tools import build_registry
+from .tools import build_registry, system
 from .tools.timers import SERVICE as TIMERS
 
 log = logging.getLogger("jarvis.server")
+
+mimetypes.add_type("application/manifest+json", ".webmanifest")
+mimetypes.add_type("image/svg+xml", ".svg")
 
 WEB_ROOT = Path(__file__).parent / "web"
 # How long a tool call waits for the user to allow or deny it.
@@ -152,9 +157,25 @@ class Session:
                 {"id": m.id, "text": m.text} for m in self.memory.all()
             ],
             "name": self.config.name,
+            "address_as": self.config.address_user_as,
+            "user_name": self.config.user_name,
             "wake_word": self.config.wake_word,
             "shell": self.config.shell,
         }
+
+    def telemetry(self) -> dict:
+        """What the HUD shows around the reactor: vital signs and timers."""
+        data = system.snapshot()
+        data["timers"] = [
+            {
+                "id": t.id,
+                "label": t.label,
+                "remaining_s": round(t.remaining(), 1),
+                "duration_s": t.duration,
+            }
+            for t in TIMERS.all()
+        ]
+        return data
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -163,6 +184,32 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, fmt, *args):  # Quieter than the default.
         log.debug("%s - %s", self.address_string(), fmt % args)
+
+    def _trusted(self) -> bool:
+        """Refuse requests that a web page elsewhere tricked the browser into.
+
+        Any site you visit can make your browser send requests to 127.0.0.1.
+        Two checks stop it steering JARVIS: the Origin of a cross-site request
+        will not match the Host it was sent to, and a DNS-rebinding page, which
+        does share the origin, arrives under its own hostname rather than a
+        loopback one.
+        """
+        host = (self.headers.get("Host") or "").strip().lower()
+        bound = self.server.server_address[0]
+        if bound in LOOPBACK or bound.startswith("127."):
+            name = urlsplit(f"//{host}").hostname or ""
+            if name not in LOOPBACK and not name.startswith("127."):
+                return False
+        origin = self.headers.get("Origin")
+        if origin and origin != "null":
+            if urlsplit(origin).netloc.lower() != host:
+                return False
+        return True
+
+    def _refuse(self) -> None:
+        log.warning("refused %s %s from origin %s",
+                    self.command, self.path, self.headers.get("Origin"))
+        self._send_json({"error": "forbidden"}, 403)
 
     # -- helpers ---------------------------------------------------------
 
@@ -199,11 +246,19 @@ class Handler(BaseHTTPRequestHandler):
     # -- routes ----------------------------------------------------------
 
     def do_GET(self) -> None:
+        if not self._trusted():
+            return self._refuse()
         route = self.path.split("?")[0]
         if route == "/":
             self._send_file(WEB_ROOT / "index.html")
+        elif route == "/manifest.webmanifest":
+            self._send_file(WEB_ROOT / "manifest.webmanifest")
+        elif route == "/api/ping":
+            self._send_json({"app": "jarvis", "version": __version__})
         elif route == "/api/state":
             self._send_json(self.session.state())
+        elif route == "/api/telemetry":
+            self._send_json(self.session.telemetry())
         elif route == "/api/events":
             self._poll_announcements()
         elif route.startswith("/static/"):
@@ -217,6 +272,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"error": "not found"}, 404)
 
     def do_POST(self) -> None:
+        if not self._trusted():
+            return self._refuse()
         route = self.path.split("?")[0]
         if route == "/api/chat":
             self._chat()
@@ -233,6 +290,11 @@ class Handler(BaseHTTPRequestHandler):
         elif route == "/api/forget":
             removed = self.session.memory.forget(self._body().get("id", ""))
             self._send_json({"ok": removed})
+        elif route == "/api/shutdown":
+            self._send_json({"ok": True})
+            # shutdown() waits for serve_forever to return, and this request is
+            # being handled inside it, so it has to run on another thread.
+            threading.Thread(target=self.server.shutdown, daemon=True).start()
         else:
             self._send_json({"error": "not found"}, 404)
 
@@ -300,28 +362,46 @@ def build_server(config, *, backend=None) -> tuple[ThreadingHTTPServer, Session]
 
 
 def serve(config, *, open_browser: bool | None = None) -> int:
-    """Start the app. Blocks until interrupted."""
-    server, session = build_server(config)
+    """Start the app, or bring up the copy already running. Blocks until stopped."""
+    url = local_url(config.host, config.port)
+    should_open = config.open_browser if open_browser is None else open_browser
 
-    url = f"http://{config.host}:{config.port}/"
+    if running_instance(url):
+        # A second launch (the icon, the hotkey) is a request to see JARVIS.
+        print(f"JARVIS is already running at {url}")
+        if should_open:
+            open_window(url, app_window=config.app_window)
+        return 0
+
+    try:
+        server, session = build_server(config)
+    except OSError as exc:
+        print(
+            f"Cannot start on port {config.port}: {exc.strerror or exc}.\n"
+            f"Another program is using it. Try: jarvis --port {config.port + 1}",
+            file=sys.stderr,
+        )
+        return 1
+
     ready, detail = session.agent.backend.health()
     print(f"JARVIS is running at {url}")
     print(f"  model   {session.agent.backend.description}")
     print(f"  status  {'ready' if ready else 'NOT READY -- ' + detail}")
     if not ready:
         print("\nThe app will still open; it will work once the model is reachable.")
-    print("\nPress Ctrl-C to stop.")
+    print("\nPress Ctrl-C to stop, or use Shut down in the app's Details panel.")
 
-    should_open = config.open_browser if open_browser is None else open_browser
     if should_open:
-        threading.Timer(0.5, lambda: webbrowser.open(url)).start()
+        threading.Timer(
+            0.5, lambda: open_window(url, app_window=config.app_window)
+        ).start()
 
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nShutting down.")
     finally:
-        server.shutdown()
+        server.server_close()
         TIMERS.cancel_all()
         path = session.agent.save_transcript()
         if path:

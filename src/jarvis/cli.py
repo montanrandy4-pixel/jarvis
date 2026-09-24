@@ -102,6 +102,22 @@ def build_parser() -> argparse.ArgumentParser:
         "doctor", help="Check what works on this machine.", parents=[common]
     )
 
+    setup = subs.add_parser(
+        "setup",
+        help="Add JARVIS to the Start menu, Spotlight or app menu.",
+        parents=[common],
+    )
+    setup.add_argument("--autostart", action="store_true",
+                       help="Also start JARVIS (without a window) when you log in.")
+    setup.add_argument("--no-desktop", action="store_true",
+                       help="Skip the desktop icon.")
+    setup.add_argument("--remove", action="store_true",
+                       help="Remove everything setup created.")
+
+    stop = subs.add_parser("stop", help="Stop a running JARVIS app.", parents=[common])
+    stop.add_argument("--port", type=int, default=argparse.SUPPRESS,
+                      help="Port it is serving on (default: 8765).")
+
     mem = subs.add_parser(
         "memory", help="Inspect what JARVIS remembers.", parents=[common]
     )
@@ -327,6 +343,43 @@ def cmd_doctor(args) -> int:
     return 0 if ok else 1
 
 
+def cmd_setup(args) -> int:
+    from . import shortcuts
+
+    if args.remove:
+        report = shortcuts.remove()
+        for path in report.removed:
+            print(f"  removed  {path}")
+        print("Launchers removed." if report.removed else "Nothing to remove.")
+        return 0
+    try:
+        report = shortcuts.install(autostart=args.autostart, desktop=not args.no_desktop)
+    except (OSError, RuntimeError) as exc:
+        print(f"Could not create the launcher: {exc}", file=sys.stderr)
+        return 1
+    for path in report.created:
+        print(f"  created  {path}")
+    for path in report.removed:
+        print(f"  removed  {path}")
+    for note in report.notes:
+        print(f"\n{note}")
+    if args.autostart:
+        print("JARVIS will start in the background when you log in.")
+    return 0
+
+
+def cmd_stop(args) -> int:
+    from .launcher import local_url, stop_instance
+
+    config = _config_from(args)
+    url = local_url(config.host, config.port)
+    if stop_instance(url):
+        print("JARVIS stopped.")
+        return 0
+    print(f"JARVIS is not running at {url}")
+    return 1
+
+
 def _importable(module: str) -> bool:
     import importlib.util
 
@@ -350,6 +403,8 @@ def main(argv: list[str] | None = None) -> int:
         "ask": cmd_ask,
         "memory": cmd_memory,
         "doctor": cmd_doctor,
+        "setup": cmd_setup,
+        "stop": cmd_stop,
     }
     try:
         return handlers[getattr(args, "command", None)](args)

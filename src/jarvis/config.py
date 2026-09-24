@@ -82,6 +82,9 @@ class Config:
     host: str = "127.0.0.1"
     port: int = 8765
     open_browser: bool = True
+    # Open in a Chrome or Edge app window (no tabs or address bar) when one is
+    # installed, rather than a tab in the default browser.
+    app_window: bool = True
 
     # --- Storage ---
     state_dir: Path = field(default_factory=_default_state_dir)

@@ -3,73 +3,121 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="color-scheme" content="dark light">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#03070b">
 <title>JARVIS</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='34' fill='none' stroke='%2364e9ff' stroke-width='8'/><circle cx='50' cy='50' r='12' fill='%2364e9ff'/></svg>">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/icon-192.png">
 <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-<div class="app">
+<div class="hud">
   <header class="bar">
-    <div class="identity">
-      <span class="mark" aria-hidden="true"></span>
+    <div class="wordmark">
       <h1 id="assistant-name">JARVIS</h1>
+      <span class="tagline">Personal assistant</span>
     </div>
-    <div class="status">
+    <div class="status" role="status">
       <span id="status-dot" class="dot" data-state="unknown"></span>
-      <span id="status-text">connecting…</span>
+      <span id="status-text">Connecting…</span>
     </div>
     <div class="bar-actions">
-      <button id="voice-toggle" class="ghost" aria-pressed="true"
+      <button id="install" class="chip" type="button" hidden>Install app</button>
+      <button id="voice-toggle" class="chip" type="button" aria-pressed="true"
               title="Speak replies aloud">Voice on</button>
-      <button id="panel-toggle" class="ghost" aria-expanded="false"
-              aria-controls="panel">Details</button>
+      <button id="panel-toggle" class="chip" type="button" aria-expanded="false"
+              aria-controls="panel">Settings</button>
     </div>
   </header>
 
-  <main class="stage">
-    <div class="orb-wrap">
-      <div id="orb" class="orb" data-state="idle">
-        <span class="ring r1"></span><span class="ring r2"></span>
-        <span class="ring r3"></span><span class="core"></span>
-      </div>
-      <p id="orb-caption" class="caption">Tap the orb, or just type.</p>
-    </div>
+  <div class="strip" aria-label="System status">
+    <span><em>CPU</em> <b data-metric="cpu">—</b></span>
+    <span><em>MEM</em> <b data-metric="memory">—</b></span>
+    <span><em>DISK</em> <b data-metric="disk">—</b></span>
+    <span><em>PWR</em> <b data-metric="battery">—</b></span>
+    <span class="strip-clock"><b data-metric="clock">--:--</b></span>
+  </div>
 
-    <ol id="transcript" class="transcript" aria-live="polite" aria-label="Conversation"></ol>
+  <aside class="rail rail-left" aria-label="System status">
+    <section class="clock">
+      <p class="clock-time"><span data-metric="clock">--:--</span><small id="clock-sec">:--</small></p>
+      <p class="clock-date" id="clock-date">—</p>
+    </section>
+    <section class="gauges">
+      <div class="gauge" data-gauge="cpu">
+        <p class="g-head"><span>Processor</span><b data-metric="cpu">—</b></p>
+        <div class="g-bar"><i></i></div>
+        <p class="g-note" data-note="cpu">&nbsp;</p>
+      </div>
+      <div class="gauge" data-gauge="memory">
+        <p class="g-head"><span>Memory</span><b data-metric="memory">—</b></p>
+        <div class="g-bar"><i></i></div>
+        <p class="g-note" data-note="memory">&nbsp;</p>
+      </div>
+      <div class="gauge" data-gauge="disk">
+        <p class="g-head"><span>Storage</span><b data-metric="disk">—</b></p>
+        <div class="g-bar"><i></i></div>
+        <p class="g-note" data-note="disk">&nbsp;</p>
+      </div>
+      <div class="gauge" data-gauge="battery">
+        <p class="g-head"><span>Power</span><b data-metric="battery">—</b></p>
+        <div class="g-bar"><i></i></div>
+        <p class="g-note" data-note="battery">&nbsp;</p>
+      </div>
+    </section>
+    <dl class="facts">
+      <dt>Host</dt><dd data-metric="host">—</dd>
+      <dt>Uptime</dt><dd data-metric="uptime">—</dd>
+      <dt>Model</dt><dd data-metric="model">—</dd>
+    </dl>
+  </aside>
+
+  <main class="stage">
+    <button id="orb" class="reactor" type="button" data-state="idle"
+            aria-label="Talk to JARVIS">
+      <canvas id="reactor" aria-hidden="true"></canvas>
+    </button>
+    <p id="orb-caption" class="caption" aria-live="polite">Standing by</p>
+
+    <ol id="transcript" class="log" aria-live="polite" aria-label="Conversation"></ol>
+
+    <div id="confirm-slot" class="confirm-slot" hidden></div>
+
+    <form id="composer" class="composer" autocomplete="off">
+      <button type="button" id="mic" class="mic" aria-pressed="false"
+              title="Speak to JARVIS">
+        <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20">
+          <path d="M12 15a3.5 3.5 0 0 0 3.5-3.5v-5a3.5 3.5 0 1 0-7 0v5A3.5 3.5 0 0 0 12 15Z"/>
+          <path d="M5.5 11v.5a6.5 6.5 0 0 0 13 0V11M12 18.5V21"
+                fill="none" stroke="currentColor" stroke-width="1.8"
+                stroke-linecap="round"/>
+        </svg>
+        <span class="sr-only">Talk to JARVIS</span>
+      </button>
+      <input id="input" type="text" placeholder="Speak or type a command…"
+             aria-label="Message">
+      <button type="submit" id="send" class="send">Send</button>
+    </form>
   </main>
 
-  <div id="confirm-slot" class="confirm-slot" hidden></div>
-
-  <form id="composer" class="composer" autocomplete="off">
-    <button type="button" id="mic" class="mic" aria-pressed="false"
-            title="Hold a conversation by voice">
-      <svg viewBox="0 0 24 24" aria-hidden="true" width="22" height="22">
-        <path d="M12 15a3.5 3.5 0 0 0 3.5-3.5v-5a3.5 3.5 0 1 0-7 0v5A3.5 3.5 0 0 0 12 15Z"/>
-        <path d="M5.5 11v.5a6.5 6.5 0 0 0 13 0V11M12 18.5V21"
-              fill="none" stroke="currentColor" stroke-width="1.8"
-              stroke-linecap="round"/>
-      </svg>
-      <span class="sr-only">Talk to JARVIS</span>
-    </button>
-    <input id="input" type="text" placeholder="Ask JARVIS…" aria-label="Message">
-    <button type="submit" id="send" class="send">Send</button>
-  </form>
+  <aside class="rail rail-right" aria-label="Timers and memory">
+    <section>
+      <h2>Timers</h2>
+      <ul class="timers" data-list="timers"></ul>
+    </section>
+    <section>
+      <h2>Memory</h2>
+      <ul class="memories" data-list="memory"></ul>
+    </section>
+  </aside>
 </div>
 
-<aside id="panel" class="panel" hidden>
+<aside id="panel" class="panel" hidden aria-label="Settings">
   <section>
     <h2>Model</h2>
-    <p id="panel-model" class="muted">—</p>
+    <p id="panel-model">—</p>
     <p id="panel-detail" class="muted small">—</p>
-  </section>
-  <section>
-    <h2>Tools</h2>
-    <ul id="panel-tools" class="chips"></ul>
-  </section>
-  <section>
-    <h2>Memory</h2>
-    <ul id="panel-memory" class="memories"></ul>
   </section>
   <section>
     <h2>Voice</h2>
@@ -79,11 +127,25 @@
     </label>
     <p id="voice-support" class="muted small"></p>
   </section>
+  <section class="narrow-only">
+    <h2>Timers</h2>
+    <ul class="timers" data-list="timers"></ul>
+  </section>
+  <section class="narrow-only">
+    <h2>Memory</h2>
+    <ul class="memories" data-list="memory"></ul>
+  </section>
   <section>
-    <button id="reset" class="ghost danger">Clear conversation</button>
+    <h2>Tools</h2>
+    <ul id="panel-tools" class="tags"></ul>
+  </section>
+  <section class="controls">
+    <button id="reset" class="chip" type="button">Clear conversation</button>
+    <button id="shutdown" class="chip danger" type="button">Shut down JARVIS</button>
   </section>
 </aside>
 
+<script src="/static/reactor.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

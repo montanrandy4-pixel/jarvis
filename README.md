@@ -1,33 +1,73 @@
 # JARVIS
 
-A voice assistant that runs on your own machine. Open the app, talk to it, and
-it answers out loud — running tools on your computer when the answer needs
-actually looking rather than guessing.
+A voice assistant in the style of Iron Man's, running on your own machine.
+Open it, talk to it, and it answers out loud, using your computer when the
+answer needs checking rather than guessing.
 
 No API key. No cloud model. Nothing to sign up for.
 
+![the app](docs/screenshot.png)
+
+## Install
+
+One step. The installer sets up the AI engine and model, JARVIS itself, and a
+launcher, then opens JARVIS. Most of the time goes on the model download,
+about 5 GB.
+
+**Windows.** Download this repository (*Code → Download ZIP*), unzip it, and
+double-click **`install.cmd`**.
+
+**macOS or Linux.** From the downloaded folder:
+
 ```bash
-ollama pull llama3.1:8b        # the brain
-pip install -e .               # no dependencies beyond Python
-jarvis                         # opens the app
+./install.sh
 ```
 
-![the app](docs/screenshot.png)
+or without downloading anything first:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/montanrandy4-pixel/jarvis/HEAD/install.sh | sh
+```
+
+It asks two things: whether to install Ollama (the engine that runs the model
+on your computer) if you don't have it, and whether JARVIS should start in the
+background when you log in, so it opens instantly. Run it again at any time to
+update. `--yes` accepts every default; `--model qwen2.5:7b` picks another model.
+
+## Opening it
+
+| | |
+|---|---|
+| Windows | **Ctrl+Alt+J** from anywhere, or JARVIS in the Start menu or on the desktop |
+| macOS | **Cmd+Space**, type JARVIS; or Launchpad, or drag it to the Dock |
+| Linux | JARVIS in the applications menu, or `jarvis` |
+| Any browser | http://127.0.0.1:8765 |
+
+JARVIS opens in its own window (Chrome or Edge app mode, when either is
+installed). Opening it again while it is running brings up the same one. Chrome
+and Edge also show **Install app** in the top bar, which pins it to the taskbar
+or Dock like any other program.
+
+To stop it: *Settings → Shut down JARVIS*, or `jarvis stop`.
 
 ## What it is
 
-A local web app (`jarvis`) with a Python backend. Type or talk; replies stream
-back and are spoken as they arrive. The model runs in Ollama alongside it, so
-the whole thing works on a plane.
+A local web app with a Python backend. Type or talk; replies stream back and
+are spoken as they arrive. The model runs in Ollama alongside it, so the whole
+thing works on a plane.
 
 | Piece | What it does |
 |---|---|
-| App at `127.0.0.1:8765` | Chat UI, voice in and out, tool activity, memory |
+| The HUD at `127.0.0.1:8765` | Arc reactor that reacts to your voice and its own, live system gauges, timers, memory, conversation log |
 | Model backend | Ollama by default; any OpenAI-compatible server instead |
 | Tools | Shell, files, timers, memory, system status, web search |
 | Memory | Durable facts in a JSON file you can read and edit |
 
-## Install
+The reactor shows what JARVIS is doing: cyan and steady when standing by,
+rippling with your voice while it listens, gold and spinning while it thinks,
+pulsing as it speaks, red when something needs attention.
+
+## Installing by hand
 
 ```bash
 # 1. A model that can call tools
@@ -38,13 +78,14 @@ ollama pull llama3.1:8b                           # or qwen2.5:7b, mistral-nemo
 git clone https://github.com/montanrandy4-pixel/jarvis && cd jarvis
 pip install -e .
 
-# 3. Check and run
+# 3. Check, add the launcher, and run
 jarvis doctor
+jarvis setup --autostart      # Start menu / Spotlight / app menu entry
 jarvis
 ```
 
 `jarvis doctor` verifies the model server is up, the model is pulled, and that
-it supports tool calling — it names the exact command to fix whatever is
+it supports tool calling. It names the exact command to fix whatever is
 missing.
 
 ### Using a different server
@@ -68,17 +109,20 @@ environment variable named by `api_key_env` (default `OPENAI_API_KEY`).
 | `jarvis listen` | Hands-free voice in the terminal, no browser |
 | `jarvis memory` | Show, add or delete what it remembers |
 | `jarvis doctor` | Check the setup |
+| `jarvis setup` | Add the launcher; `--autostart` to start at login, `--remove` to undo |
+| `jarvis stop` | Stop the running app |
 
 Flags work before or after the subcommand: `--backend`, `--model`, `--base-url`,
 `--shell off|confirm|on`, `--no-web`, `--port`, `--no-browser`, `--debug`.
+`JARVIS_APP_WINDOW=false` opens a normal browser tab instead of an app window.
 
 ## Talking to it
 
 The app uses your browser's speech engines, so voice needs no extra install.
 
-- **Tap the orb** (or the microphone) and speak. Tap again while it is talking
-  to interrupt.
-- **Hands-free**: turn on *Listen for "hey jarvis"* in Details, and it waits for
+- **Tap the reactor** (or the microphone) and speak. Tap again while it is
+  talking to interrupt.
+- **Hands-free**: turn on *Listen for "hey jarvis"* in Settings, and it waits for
   the wake word. Say "hey jarvis, what's on my disk" in one breath and it skips
   straight to the question.
 - **Replies are spoken as they stream**, sentence by sentence, so it starts
@@ -112,6 +156,10 @@ JARVIS can run commands on your machine, so two gates are on by default:
   `shell = off` removes the tool entirely; `shell = on` stops asking.
 - **Workspace confinement** — file tools only touch `workspace` (your home
   directory by default), resolved before the check so `../..` cannot climb out.
+
+- **Other websites cannot drive it.** Any page you visit can make your browser
+  send requests to `127.0.0.1`; JARVIS refuses those whose Origin is not its own,
+  and requests under a hostname other than a loopback one (DNS rebinding).
 
 The app binds to `127.0.0.1` and holds one conversation. Memory, transcripts and
 settings live in `~/.local/state/jarvis`.
@@ -174,20 +222,24 @@ error the model can recover from rather than a crash.
 
 ```bash
 pip install -e '.[dev]'
-pytest                    # 166 tests, no model or microphone required
+pytest                    # 333 tests, no model or microphone required
 ```
 
 The agent loop runs against a scripted fake backend; the Ollama and
 OpenAI-compatible clients run against a stub HTTP server that replays real
 protocol traffic; the app's endpoints are tested over real HTTP, including the
-permission round trip.
+permission round trip. Launchers for all three OSes are built into a temporary
+home directory and inspected; `install.sh` has been run end to end on Linux.
+The Windows and macOS installers have not been run on those systems yet.
 
 ### Layout
 
 ```
 src/jarvis/
-  server.py     the app: HTTP, SSE streaming, permission prompts
-  web/          the UI (no build step, no CDN)
+  server.py     the app: HTTP, SSE streaming, permission prompts, telemetry
+  web/          the HUD (no build step, no CDN); reactor.js draws the reactor
+  launcher.py   single instance, app window, stop
+  shortcuts.py  `jarvis setup`: Start menu, Spotlight and app-menu launchers
   agent.py      conversation loop, tool execution, history trimming
   backends/     ollama + openai-compatible clients, built on urllib
   persona.py    system prompt

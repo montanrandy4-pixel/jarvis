@@ -232,3 +232,137 @@ class TestPermission:
 
         assert not any(e["type"] == "confirm" for e in events)
         assert events[-1]["text"] == "It said hello."
+
+
+class TestAppShell:
+    def test_the_manifest_makes_it_installable(self, app):
+        with urllib.request.urlopen(f"{app.url}/manifest.webmanifest", timeout=5) as r:
+            kind = r.headers["Content-Type"]
+            manifest = json.loads(r.read())
+
+        assert kind == "application/manifest+json"
+        assert manifest["display"] == "standalone"
+        sizes = {icon["sizes"] for icon in manifest["icons"]}
+        assert {"192x192", "512x512"} <= sizes
+        for icon in manifest["icons"]:
+            with urllib.request.urlopen(f"{app.url}{icon['src']}", timeout=5) as r:
+                assert r.status == 200
+                assert r.headers["Content-Type"] == icon["type"]
+
+    def test_the_hud_scripts_are_served(self, app):
+        assert get(app, "/static/reactor.js")[0] == 200
+        assert 'src="/static/reactor.js"' in get(app, "/")[1]
+
+    def test_ping_identifies_the_app(self, app):
+        assert json.loads(get(app, "/api/ping")[1])["app"] == "jarvis"
+
+
+class TestTelemetry:
+    def test_vital_signs_are_numbers(self, app):
+        data = json.loads(get(app, "/api/telemetry")[1])
+
+        assert data["cpus"] >= 1
+        assert 0 <= data["disk"]["used_pct"] <= 100
+        assert isinstance(data["timers"], list)
+
+    def test_running_timers_are_listed_with_time_left(self, app):
+        from jarvis.tools.timers import SERVICE
+
+        timer = SERVICE.add(600, "the pasta")
+        try:
+            data = json.loads(get(app, "/api/telemetry")[1])
+        finally:
+            SERVICE.cancel(timer.id)
+
+        [listed] = [t for t in data["timers"] if t["id"] == timer.id]
+        assert listed["label"] == "the pasta"
+        assert listed["duration_s"] == 600
+        assert 590 < listed["remaining_s"] <= 600
+
+
+class TestOtherSitesCannotDriveIt:
+    """Any web page can make the browser send requests to 127.0.0.1."""
+
+    def _request(self, app, path, *, headers, data=None):
+        request = urllib.request.Request(
+            f"{app.url}{path}", data=data, headers=headers,
+            method="POST" if data is not None else "GET",
+        )
+        return urllib.request.urlopen(request, timeout=5)
+
+    def test_a_cross_site_post_is_refused_and_nothing_runs(self, app):
+        app.backend.script = [says("Should never be said.")]
+
+        with pytest.raises(urllib.error.HTTPError) as caught:
+            self._request(
+                app, "/api/chat",
+                headers={"Origin": "https://evil.example", "Content-Type": "text/plain"},
+                data=json.dumps({"text": "remember that I owe you money"}).encode(),
+            )
+
+        assert caught.value.code == 403
+        assert app.backend.calls == []
+
+    def test_a_rebound_hostname_cannot_read_memories(self, app):
+        app.session.memory.add("A secret.")
+        port = app.url.rsplit(":", 1)[1]
+
+        with pytest.raises(urllib.error.HTTPError) as caught:
+            self._request(app, "/api/state", headers={"Host": f"evil.example:{port}"})
+
+        assert caught.value.code == 403
+
+    def test_the_app_itself_is_allowed(self, app):
+        host = app.url.split("//", 1)[1]
+        with self._request(app, "/api/ping", headers={"Origin": f"http://{host}"}) as r:
+            assert r.status == 200
+        with self._request(
+            app, "/api/ping", headers={"Host": host.replace("127.0.0.1", "localhost")}
+        ) as r:
+            assert r.status == 200
+
+
+class TestLifecycle:
+    def test_shutdown_stops_the_server(self, config):
+        config.port = 0
+        server, _ = build_server(config, backend=FakeBackend(script=[]))
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        host, port = server.server_address[:2]
+
+        from jarvis.launcher import stop_instance
+
+        assert stop_instance(f"http://{host}:{port}/") is True
+        thread.join(timeout=5)
+        server.server_close()
+
+        assert not thread.is_alive()
+
+    def test_launching_again_opens_the_running_copy(self, app, monkeypatch):
+        from jarvis import server as server_module
+
+        opened = []
+        monkeypatch.setattr(
+            server_module, "open_window", lambda url, **kw: opened.append(url)
+        )
+        port = int(app.url.rsplit(":", 1)[1])
+        app.config.port = port
+
+        assert server_module.serve(app.config, open_browser=True) == 0
+        assert opened == [f"http://127.0.0.1:{port}/"]
+
+    def test_a_port_taken_by_something_else_is_explained(self, config, capsys):
+        import socket
+
+        from jarvis.server import serve
+
+        blocker = socket.socket()
+        blocker.bind(("127.0.0.1", 0))
+        blocker.listen(1)
+        config.port = blocker.getsockname()[1]
+        try:
+            assert serve(config, open_browser=False) == 1
+        finally:
+            blocker.close()
+
+        assert f"--port {config.port + 1}" in capsys.readouterr().err
