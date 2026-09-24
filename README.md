@@ -38,7 +38,7 @@ update. `--yes` accepts every default; `--model qwen2.5:7b` picks another model.
 
 | | |
 |---|---|
-| Windows | **Ctrl+Alt+J** from anywhere, or JARVIS in the Start menu or on the desktop |
+| Windows | **Ctrl+Alt+J** from anywhere (**Ctrl+Alt+K** starts a call), or JARVIS in the Start menu or on the desktop |
 | macOS | **Cmd+Space**, type JARVIS; or Launchpad, or drag it to the Dock |
 | Linux | JARVIS in the applications menu, or `jarvis` |
 | Any browser | http://127.0.0.1:8765 |
@@ -49,6 +49,29 @@ and Edge also show **Install app** in the top bar, which pins it to the taskbar
 or Dock like any other program.
 
 To stop it: *Settings → Shut down JARVIS*, or `jarvis stop`.
+
+## Calling JARVIS
+
+Tap the reactor, or **Call**, and you are on a call: talk normally, and it
+answers out loud and goes straight back to listening. No button to hold, no
+wake word between sentences.
+
+- **Cut in** by talking over it, as you would with a person. It stops and
+  listens. Its own voice coming back through your speakers is recognised by
+  comparing what the microphone hears with what it just said, so it does not
+  interrupt itself. Headphones make this foolproof.
+- **Pause mid-sentence** and carry on: if it has not started answering, the
+  two halves are answered as one question.
+- **Answer permission questions out loud.** When it asks "Shall I delete
+  that?", say yes or no.
+- **Hang up** by saying "bye" or "that's all", with *End call*, or with Esc.
+  *Mute* stops it hearing you without ending the call.
+
+On a call it is told to answer in a sentence or two and to ask one short
+question when it needs something, as a person on the phone would. `jarvis call`,
+Ctrl+Alt+K on Windows, and *Start a call* on the Linux launcher open JARVIS
+straight into a call. Calls need Chrome or Edge, which provide the speech
+recognition.
 
 ## On your phone, with nothing to install
 
@@ -66,8 +89,9 @@ is still no API key, and nothing runs on your computer.
 - **Fast or Thorough** in Settings picks a quick model for conversation or a
   slower one that thinks first.
 
-It cannot use your computer: no shell, files or wake word. That is what the
-desktop app is for. The first message asks you to allow the page to use
+It cannot use your computer (no shell or files) and cannot hold a hands-free
+call, because claude.ai pages are never given the microphone. Those are what
+the desktop app is for. The first message asks you to allow the page to use
 Claude. To change the page, edit the file and republish it as a claude.ai
 artifact.
 
@@ -125,6 +149,7 @@ environment variable named by `api_key_env` (default `OPENAI_API_KEY`).
 | Command | What it does |
 |---|---|
 | `jarvis` / `jarvis app` | Open the app |
+| `jarvis call` | Open the app on a hands-free call |
 | `jarvis chat` | Talk to it in the terminal |
 | `jarvis ask "..."` | One question, answer to stdout |
 | `jarvis listen` | Hands-free voice in the terminal, no browser |
@@ -141,8 +166,8 @@ Flags work before or after the subcommand: `--backend`, `--model`, `--base-url`,
 
 The app uses your browser's speech engines, so voice needs no extra install.
 
-- **Tap the reactor** (or the microphone) and speak. Tap again while it is
-  talking to interrupt.
+- **Tap the reactor** to start a call (above). The microphone button next to
+  the text box takes a single sentence instead.
 - **Hands-free**: turn on *Listen for "hey jarvis"* in Settings, and it waits for
   the wake word. Say "hey jarvis, what's on my disk" in one breath and it skips
   straight to the question.

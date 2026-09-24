@@ -16,6 +16,8 @@
     confirmSlot: $("confirm-slot"), reset: $("reset"), name: $("assistant-name"),
     install: $("install"), shutdown: $("shutdown"),
     clockSec: $("clock-sec"), clockDate: $("clock-date"),
+    callStart: $("call-start"), callBar: $("call-bar"), callClock: $("call-clock"),
+    callMute: $("call-mute"), callEnd: $("call-end"),
   };
 
   const reactor = window.createReactor($("reactor"));
@@ -28,8 +30,11 @@
     wakeListening: load("wake", false),
     wakeWord: "hey jarvis",
     addressAs: "sir",
+    turn: 0,                // Numbers each exchange, so a stale one can't end a newer one.
     bubble: null,
+    userEntry: null,
     toolRow: null,
+    pendingConfirm: null,   // Answers the permission card on screen, if any.
     timers: [],
     kick: 0,              // A burst of reactor energy when a word is spoken.
   };
@@ -148,6 +153,8 @@
   const synth = window.speechSynthesis;
   const speech = {
     buffer: "",
+    said: "",       // Recent words spoken, so a call can ignore its own echo.
+    lastEnd: 0,
     // Release complete sentences so speech starts before the reply is finished.
     feed(chunk) {
       if (!state.speakReplies || !synth) return;
@@ -167,6 +174,7 @@
     },
     utter(text) {
       if (!state.speakReplies || !synth || !text.trim()) return;
+      this.said = (this.said + " " + text).slice(-1500);
       const utterance = new SpeechSynthesisUtterance(text.trim());
       utterance.rate = 1.03;
       utterance.pitch = 0.95;
@@ -174,7 +182,9 @@
       if (voice) utterance.voice = voice;
       utterance.onboundary = () => { state.kick = 1; };
       utterance.onend = () => {
-        if (!synth.speaking && !state.busy) setOrb("idle");
+        if (synth.speaking) return;
+        this.lastEnd = Date.now();
+        if (!state.busy) setOrb(resting());
       };
       synth.speak(utterance);
     },
@@ -183,6 +193,11 @@
       if (synth) synth.cancel();
     },
   };
+
+  /* When nothing is happening: listening on a call, standing by otherwise. */
+  function resting() {
+    return call.active && !call.muted ? "listening" : "idle";
+  }
 
   let cachedVoice;
   function pickVoice() {
@@ -204,7 +219,9 @@
     async start() {
       if (this.stream || !navigator.mediaDevices?.getUserMedia) return;
       try {
-        this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        this.stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true },
+        });
         this.context = new AudioContext();
         this.analyser = this.context.createAnalyser();
         this.analyser.fftSize = 512;
@@ -246,9 +263,11 @@
 
   async function send(text) {
     if (state.busy || state.offline || !text.trim()) return;
+    const turn = ++state.turn;
     setBusy(true);
     speech.stop();
-    addTurn("user", text);
+    speech.said = "";
+    state.userEntry = addTurn("user", text).parentElement;
     state.bubble = addTurn("jarvis", "");
     state.bubble.classList.add("streaming");
     state.toolRow = null;
@@ -256,7 +275,13 @@
 
     let response;
     try {
-      response = await post("/api/chat", { text });
+      for (let attempt = 0; ; attempt++) {
+        response = await post("/api/chat", { text, call: call.active });
+        // Straight after an interruption the cancelled turn may still be
+        // letting go of the model; give it a moment.
+        if (response.status !== 409 || attempt >= 4) break;
+        await new Promise((resume) => setTimeout(resume, 250));
+      }
     } catch {
       return finish({ error: "I lost the connection to the app." });
     }
@@ -282,7 +307,9 @@
         handle(event);
       }
     }
-    if (state.busy) finish({});
+    // The stream closed without a "done" event. Only wrap up this turn: after
+    // an interruption the next one may already have started.
+    if (state.busy && state.turn === turn) finish({});
   }
 
   function handle(event) {
@@ -313,6 +340,8 @@
 
   function finish(event) {
     setBusy(false);
+    state.pendingConfirm = null;
+    el.confirmSlot.hidden = true;
     state.bubble?.classList.remove("streaming");
     speech.flush();
     if (event.error) {
@@ -327,9 +356,22 @@
     } else if (state.bubble && !state.bubble.textContent) {
       state.bubble.textContent = event.cancelled ? "(stopped)" : "(no reply)";
     }
-    if (!event.error) setOrb(synth?.speaking ? "speaking" : "idle");
+    if (!event.error) setOrb(synth?.speaking ? "speaking" : resting());
     refreshState();
-    if (state.wakeListening) listenForWake();
+    if (call.active && call.pending) {
+      // You spoke while it was answering: say that next.
+      const next = call.pending;
+      call.pending = "";
+      if (call.merge) {
+        // You were still finishing the sentence it started answering.
+        state.userEntry?.remove();
+        state.bubble?.parentElement.remove();
+      }
+      call.merge = false;
+      send(next);
+      return;
+    }
+    if (state.wakeListening && !call.active) listenForWake();
   }
 
   function askPermission(event) {
@@ -352,10 +394,12 @@
     speech.utter(`Shall I ${event.summary}?`);
 
     const answer = (allowed) => {
+      state.pendingConfirm = null;
       el.confirmSlot.hidden = true;
       el.confirmSlot.innerHTML = "";
       post("/api/confirm", { id: event.id, allow: allowed }).catch(() => {});
     };
+    state.pendingConfirm = answer;   // On a call you can answer out loud.
     allow.onclick = () => answer(true);
     deny.onclick = () => answer(false);
     allow.focus();
@@ -442,7 +486,205 @@
 
   function setMic(on) {
     el.mic.setAttribute("aria-pressed", String(on));
-    if (!on && !state.busy && !synth?.speaking) setOrb("idle");
+    if (!on && !state.busy && !synth?.speaking) setOrb(resting());
+  }
+
+  /* ---------- calls: talk back and forth, hands-free ---------- */
+
+  const call = {
+    active: false, muted: false, started: 0, clock: null, lock: null,
+    rec: null, failures: 0,
+    pending: "",      // What you said while it was busy; sent when it finishes.
+    merge: false,     // Whether that was the rest of your previous sentence.
+  };
+
+  const words = (text) =>
+    text.toLowerCase().replace(/[^a-z0-9'\s]/g, " ").split(/\s+/).filter(Boolean);
+  const FILLER = /^(uh|um+|hmm+|mm+|ah|er|oh)$/i;
+  const CUT_IN = /\b(stop|wait|hold on|hang on|jarvis|excuse me|sorry)\b/i;
+  const HANG_UP = /^(?:(?:ok(?:ay)?|thanks?|thank you|alright|great|cool)[\s,.!]+)*(?:good ?bye|bye(?: bye)?|hang up|end (?:the )?call|that'?s all(?: for now)?|talk (?:to you )?later)(?:[\s,]+(?:jarvis|for now|then|sir))*[\s.!]*$/i;
+  const YES = /^(?:yes|yeah|yep|yup|sure|go ahead|do it|allow(?: it)?|ok(?:ay)?|please do|affirmative)\b/i;
+  const NO = /^(?:no|nope|don'?t|do not|cancel|deny|negative|never mind)\b/i;
+
+  /* Is this the microphone hearing JARVIS's own voice from the speakers?
+     Compare it with what was just said: echo is mostly the same words. */
+  function isEcho(text) {
+    const speaking = Boolean(synth?.speaking);
+    const recent = Date.now() - speech.lastEnd < 2000;
+    if (!speaking && !recent) return false;
+    const heard = words(text);
+    if (!heard.length) return true;
+    // A one- or two-word answer straight after a question is you, not an echo.
+    if (!speaking && heard.length < 3) return false;
+    const spoken = new Set(words(speech.said));
+    const novel = heard.filter((w) => !spoken.has(w)).length;
+    return novel < 2 || novel / heard.length < 0.4;
+  }
+
+  function cutIn() {
+    speech.stop();
+    speech.lastEnd = 0;       // You are talking now; nothing more to filter.
+    if (state.busy) post("/api/cancel").catch(() => {});
+    setOrb("listening");
+  }
+
+  function heardInterim(text) {
+    if (isEcho(text) && !CUT_IN.test(text)) return;
+    call.failures = 0;
+    if (synth?.speaking || (state.busy && !state.pendingConfirm)) {
+      if (words(text).length >= 2 || CUT_IN.test(text)) cutIn();
+    }
+    if (!state.busy) setOrb("listening", text);
+  }
+
+  function heardFinal(text) {
+    call.failures = 0;
+    const said = words(text);
+    if (state.pendingConfirm) {
+      // Only yes or no matter now, and you may answer before it finishes
+      // asking. A "yes" it did not just say itself is you.
+      if (said.length && !words(speech.said).includes(said[0])) {
+        if (YES.test(text)) { speech.stop(); state.pendingConfirm(true); }
+        else if (NO.test(text)) { speech.stop(); state.pendingConfirm(false); }
+      }
+      return;
+    }
+    if (isEcho(text)) return;
+    if (!said.length || said.every((w) => FILLER.test(w))) return;
+
+    if (HANG_UP.test(text.trim())) {
+      speech.stop();
+      if (state.busy) post("/api/cancel").catch(() => {});
+      addTurn("user", text);
+      const bye = state.addressAs ? `Goodbye, ${state.addressAs}.` : "Goodbye.";
+      addTurn("jarvis", bye);
+      speech.utter(bye);
+      endCall();
+      return;
+    }
+    if (state.busy) {
+      // Still thinking with nothing said yet: you were finishing your
+      // sentence, so answer the whole thing. Otherwise it is an interruption.
+      const unanswered = !state.bubble?.textContent;
+      call.merge = unanswered;
+      const before = unanswered ? state.userEntry?.querySelector(".text")?.textContent ?? "" : "";
+      call.pending = (call.pending ? call.pending + " " : before ? before + " " : "") + text;
+      cutIn();
+      return;
+    }
+    send(text);
+  }
+
+  function callListen() {
+    if (!call.active || call.muted || !Recognition) return;
+    const rec = new Recognition();
+    call.rec = rec;
+    rec.lang = "en-GB";
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.onresult = (event) => {
+      if (call.rec !== rec) return;
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const result = event.results[i];
+        const text = result[0].transcript.trim();
+        if (!text) continue;
+        if (result.isFinal) heardFinal(text);
+        else heardInterim(text);
+      }
+    };
+    rec.onerror = (event) => {
+      if (call.rec !== rec) return;
+      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+        endCall("The microphone is blocked. Allow it for this page (the icon at the end of the address bar), then call again.");
+      } else if (event.error === "audio-capture") {
+        endCall("No microphone was found. Plug one in, then call again.");
+      } else if (event.error === "network") {
+        call.failures += 1;
+      }
+    };
+    rec.onend = () => {
+      if (call.rec !== rec || !call.active || call.muted) return;
+      if (call.failures >= 5) {
+        endCall("Speech recognition stopped working. In Chrome and Edge it needs an internet connection.");
+        return;
+      }
+      // Chrome ends continuous listening every so often; pick straight back up.
+      setTimeout(callListen, call.failures ? 1500 : 150);
+    };
+    try { rec.start(); } catch { setTimeout(callListen, 500); }
+  }
+
+  function stopCallListening() {
+    const rec = call.rec;
+    call.rec = null;
+    if (rec) { try { rec.abort(); } catch {} }
+  }
+
+  function renderCallClock() {
+    const seconds = Math.floor((Date.now() - call.started) / 1000);
+    const m = Math.floor(seconds / 60);
+    el.callClock.textContent = `${m}:${String(seconds % 60).padStart(2, "0")}`;
+  }
+
+  async function startCall() {
+    if (!Recognition || call.active || state.offline) return;
+    stopRecognition();              // Wake word and one-shot listening give way.
+    setMic(false);
+    Object.assign(call, { active: true, muted: false, started: Date.now(), pending: "", merge: false, failures: 0 });
+    el.callBar.hidden = false;
+    el.callBar.removeAttribute("data-muted");
+    el.callMute.setAttribute("aria-pressed", "false");
+    el.callMute.textContent = "Mute";
+    el.composer.hidden = true;
+    renderCallClock();
+    call.clock = setInterval(renderCallClock, 1000);
+    meter.start();
+    try { call.lock = await navigator.wakeLock?.request("screen"); } catch { call.lock = null; }
+    addSystem("Call ", ["connected", "ok"], " · just talk, and say “bye” to hang up");
+    callListen();
+    if (!state.busy) {
+      const hello = state.addressAs ? `Yes, ${state.addressAs}?` : "I'm listening.";
+      addTurn("jarvis", hello);
+      speech.utter(hello);
+      setOrb(synth?.speaking ? "speaking" : "listening");
+    }
+    el.callEnd.focus();
+  }
+
+  function endCall(problem) {
+    if (!call.active) return;
+    call.active = false;
+    stopCallListening();
+    clearInterval(call.clock);
+    meter.stop();
+    call.lock?.release?.().catch(() => {});
+    call.lock = null;
+    call.pending = "";
+    el.callBar.hidden = true;
+    el.composer.hidden = false;
+    renderCallClock();
+    if (problem) addSystem("Call ended · ", [problem, "warn"]);
+    else addSystem(`Call ended · ${el.callClock.textContent}`);
+    if (!state.busy && !synth?.speaking) setOrb(problem ? "error" : "idle");
+    if (state.wakeListening) listenForWake();
+    if (!state.busy) el.input.focus();
+  }
+
+  function toggleMute() {
+    if (!call.active) return;
+    call.muted = !call.muted;
+    el.callMute.setAttribute("aria-pressed", String(call.muted));
+    el.callMute.textContent = call.muted ? "Unmute" : "Mute";
+    el.callBar.toggleAttribute("data-muted", call.muted);
+    if (call.muted) {
+      stopCallListening();
+      meter.stop();
+      if (!state.busy && !synth?.speaking) setOrb("idle", "Muted");
+    } else {
+      meter.start();
+      callListen();
+      if (!state.busy && !synth?.speaking) setOrb("listening");
+    }
   }
 
   /* ---------- things that happen between turns ---------- */
@@ -683,14 +925,20 @@
   el.orb.addEventListener("click", () => {
     if (state.busy || synth?.speaking) {
       // Tapping during a reply is how you interrupt it.
+      if (call.active) { cutIn(); return; }
       speech.stop();
       post("/api/cancel").catch(() => {});
       setOrb("idle");
       return;
     }
-    if (mode === "command") { stopRecognition(); setMic(false); return; }
-    listenForCommand();
+    if (call.active) { if (call.muted) toggleMute(); return; }
+    if (mode === "command") { stopRecognition(); setMic(false); }
+    startCall();
   });
+
+  el.callStart.addEventListener("click", startCall);
+  el.callEnd.addEventListener("click", () => endCall());
+  el.callMute.addEventListener("click", toggleMute);
 
   el.voiceToggle.addEventListener("click", () => {
     state.speakReplies = !state.speakReplies;
@@ -762,11 +1010,26 @@
 
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
+      if (!el.panel.hidden) { el.panelToggle.click(); return; }
+      if (call.active) { endCall(); return; }
       speech.stop();
       if (state.busy) post("/api/cancel").catch(() => {});
-      if (!el.panel.hidden) el.panelToggle.click();
+    } else if (call.active && event.code === "Space" && event.target === document.body) {
+      event.preventDefault();         // Space cuts in, like tapping the reactor.
+      cutIn();
     }
   });
+
+  // One JARVIS window at a time: a newly opened one (the icon, the hotkey)
+  // takes over, and older ones close, unless they are on a call.
+  try {
+    const windows = new BroadcastChannel("jarvis-window");
+    const born = Date.now();
+    windows.onmessage = (event) => {
+      if (event.data?.type === "opened" && event.data.born > born && !call.active) window.close();
+    };
+    windows.postMessage({ type: "opened", born });
+  } catch {}
 
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) refreshTelemetry();
@@ -779,6 +1042,8 @@
   el.wakeToggle.checked = state.wakeListening;
   if (!Recognition) {
     el.mic.disabled = true;
+    el.callStart.disabled = true;
+    el.callStart.title = "Calls need Chrome or Edge";
     el.wakeToggle.disabled = true;
     el.voiceSupport.textContent =
       "This browser cannot listen. Chrome or Edge can; typing works everywhere.";
@@ -794,7 +1059,8 @@
   setInterval(() => { if (!document.hidden && !state.offline) refreshTelemetry(); }, 5000);
   boot();
   pollAnnouncements();
-  if (location.hash === "#listen") listenForCommand();
+  if (location.hash === "#call") startCall();
+  else if (location.hash === "#listen") listenForCommand();
   else if (state.wakeListening) listenForWake();
   el.input.focus();
 })();

@@ -259,3 +259,16 @@ def test_transcript_records_the_backend_used(config, memory):
 
     assert "fake-model" in path.read_text()
     assert "remember this" in path.read_text()
+
+
+def test_a_turn_note_applies_to_that_turn_only(config, memory):
+    from jarvis.persona import CALL_NOTE
+
+    agent = make_agent(config, memory, [says("Yes, sir?"), says("Noted.")])
+
+    agent.reply("are you there", note=CALL_NOTE)
+    agent.reply("back to typing")
+
+    first, second = (call["messages"][0]["content"] for call in agent.backend.calls)
+    assert "live voice call" in first
+    assert "live voice call" not in second

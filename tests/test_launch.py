@@ -104,6 +104,8 @@ class TestLinuxLaunchers:
         assert "Icon=" + str(tmp_path / ".local/share/icons") in entry
         assert Path(entry.split("Icon=")[1].split("\n")[0]).is_file()
         assert "app --no-browser" in auto.read_text()
+        assert "[Desktop Action call]" in entry
+        assert f"Exec={sys.executable} -m jarvis call" in entry
         assert desk.stat().st_mode & 0o111
 
     def test_remove_undoes_install(self, tmp_path):
@@ -186,6 +188,8 @@ class TestWindowsLaunchers:
         report, script = self._install(tmp_path)
 
         assert script.count("$s.Hotkey = 'CTRL+ALT+J'") == 1
+        assert script.count("$s.Hotkey = 'CTRL+ALT+K'") == 1
+        assert "'Call JARVIS.lnk'" in script and "-m jarvis call'" in script
         start_menu = script.index("$programs")
         assert script.index("Hotkey") > start_menu
         assert "-m jarvis app'" in script

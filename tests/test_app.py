@@ -141,6 +141,22 @@ class TestConversation:
         assert events[-1]["type"] == "done"
         assert "Ollama is not running." in events[-1]["error"]
 
+    def test_a_call_asks_for_short_spoken_answers(self, app):
+        app.backend.script = [says("Yes, sir?"), says("Typed answer.")]
+        request = urllib.request.Request(
+            f"{app.url}/api/chat",
+            data=json.dumps({"text": "are you there", "call": True}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=10) as response:
+            response.read()
+        stream(app, "and now typed")
+
+        on_call, typed = (c["messages"][0]["content"] for c in app.backend.calls)
+        assert "live voice call" in on_call
+        assert "live voice call" not in typed
+
     def test_an_empty_message_is_rejected(self, app):
         with pytest.raises(urllib.error.HTTPError) as caught:
             post(app, "/api/chat", {"text": "   "})
@@ -350,6 +366,20 @@ class TestLifecycle:
 
         assert server_module.serve(app.config, open_browser=True) == 0
         assert opened == [f"http://127.0.0.1:{port}/"]
+
+    def test_jarvis_call_opens_the_running_copy_on_a_call(self, app, monkeypatch):
+        from jarvis import cli
+        from jarvis import server as server_module
+
+        opened = []
+        monkeypatch.setattr(
+            server_module, "open_window", lambda url, **kw: opened.append(url)
+        )
+        port = int(app.url.rsplit(":", 1)[1])
+        monkeypatch.setenv("JARVIS_PORT", str(port))
+
+        assert cli.main(["call"]) == 0
+        assert opened == [f"http://127.0.0.1:{port}/#call"]
 
     def test_a_port_taken_by_something_else_is_explained(self, config, capsys):
         import socket

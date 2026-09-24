@@ -15,6 +15,7 @@
     { "src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
   ],
   "shortcuts": [
-    { "name": "Talk to JARVIS", "url": "/#listen", "icons": [{ "src": "/static/icon-192.png", "sizes": "192x192" }] }
+    { "name": "Call JARVIS", "short_name": "Call", "url": "/#call", "icons": [{ "src": "/static/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Say one thing", "url": "/#listen", "icons": [{ "src": "/static/icon-192.png", "sizes": "192x192" }] }
   ]
 }

@@ -60,6 +60,8 @@ class Agent:
         self.on_tool = on_tool  # Called with (label, ToolResult) per tool run.
         self.messages: list[dict] = []
         self.started_at = time.time()
+        # Extra context for the turn in progress, e.g. that it is a voice call.
+        self._note = ""
         self._persona = persona_prompt(
             name=config.name,
             address_as=config.address_user_as,
@@ -72,7 +74,7 @@ class Agent:
     def _system_message(self) -> dict:
         """Persona plus the context that changes every turn."""
         content = self._persona + "\n\n" + context_prompt(
-            memories=self.memory.texts()
+            memories=self.memory.texts(), extra=self._note
         )
         return {"role": "system", "content": content}
 
@@ -110,8 +112,13 @@ class Agent:
 
     # -- the turn --------------------------------------------------------
 
-    def reply(self, user_text: str, on_text=None, cancel=None) -> Turn:
-        """Run one full turn, including any tool round-trips it needs."""
+    def reply(self, user_text: str, on_text=None, cancel=None, note: str = "") -> Turn:
+        """Run one full turn, including any tool round-trips it needs.
+
+        ``note`` is extra context for this turn only, such as the reminder that
+        the user is on a voice call and wants short answers.
+        """
+        self._note = note
         self.messages.append({"role": "user", "content": user_text})
         turn = Turn()
         spoken: list[str] = []

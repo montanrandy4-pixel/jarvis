@@ -201,4 +201,4 @@ Step 'Opening JARVIS'
 $pythonw = Join-Path $venv 'Scripts\pythonw.exe'
 Start-Process -FilePath $pythonw -ArgumentList '-m', 'jarvis', 'app'
 Write-Host "`nJARVIS is installed. " -NoNewline -ForegroundColor Green
-Write-Host 'Press Ctrl+Alt+J any time to open it, or find it in the Start menu.'
+Write-Host 'Press Ctrl+Alt+J any time to open it, Ctrl+Alt+K to call it hands-free, or find it in the Start menu.'

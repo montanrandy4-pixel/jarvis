@@ -44,6 +44,13 @@ Working style:
 - You may decline to run something destructive, and should say why in one line."""
 
 
+CALL_NOTE = """\
+- You are on a live voice call. The user is talking hands-free and hears you
+  rather than reading. Answer in one or two short sentences, the way a person
+  on the phone would. If you need something from them, ask one short question
+  and stop. Do not wrap up or say goodbye unless they do."""
+
+
 def persona_prompt(*, name: str, address_as: str, user_name: str, voice: bool) -> str:
     """The stable half of the system prompt. Safe to cache."""
     who = f"You are {name}, a personal AI assistant."

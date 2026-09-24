@@ -23,6 +23,7 @@ from .agent import Agent
 from .backends import BackendError
 from .launcher import LOOPBACK, local_url, open_window, running_instance
 from .memory import MemoryStore
+from .persona import CALL_NOTE
 from .tools import build_registry, system
 from .tools.timers import SERVICE as TIMERS
 
@@ -109,15 +110,17 @@ class Session:
         if self._cancel is not None:
             self._cancel.set()
 
-    def start_turn(self, text: str) -> queue.Queue:
+    def start_turn(self, text: str, *, call: bool = False) -> queue.Queue:
         """Begin an exchange and return the queue its events arrive on."""
         stream: queue.Queue = queue.Queue()
         self._turn_events = stream
-        thread = threading.Thread(target=self._run_turn, args=(text,), daemon=True)
+        thread = threading.Thread(
+            target=self._run_turn, args=(text, call), daemon=True
+        )
         thread.start()
         return stream
 
-    def _run_turn(self, text: str) -> None:
+    def _run_turn(self, text: str, call: bool = False) -> None:
         """Run one exchange, emitting events as it goes."""
         self._cancel = threading.Event()
         try:
@@ -125,6 +128,7 @@ class Session:
                 text,
                 on_text=lambda chunk: self.emit({"type": "text", "value": chunk}),
                 cancel=self._cancel,
+                note=CALL_NOTE if call else "",
             )
             self.emit(
                 {
@@ -311,7 +315,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _chat(self) -> None:
         """Run a turn, streaming events to the browser as server-sent events."""
-        text = (self._body().get("text") or "").strip()
+        body = self._body()
+        text = (body.get("text") or "").strip()
         if not text:
             self._send_json({"error": "nothing to say"}, 400)
             return
@@ -327,7 +332,7 @@ class Handler(BaseHTTPRequestHandler):
         # never comes. The stream ends when the connection closes.
         self.end_headers()
 
-        stream = self.session.start_turn(text)
+        stream = self.session.start_turn(text, call=bool(body.get("call")))
         try:
             while True:
                 try:
@@ -361,8 +366,12 @@ def build_server(config, *, backend=None) -> tuple[ThreadingHTTPServer, Session]
     return server, session
 
 
-def serve(config, *, open_browser: bool | None = None) -> int:
-    """Start the app, or bring up the copy already running. Blocks until stopped."""
+def serve(config, *, open_browser: bool | None = None, fragment: str = "") -> int:
+    """Start the app, or bring up the copy already running. Blocks until stopped.
+
+    ``fragment`` is added to the address the window opens, e.g. ``#call`` to
+    start a voice call as soon as it loads.
+    """
     url = local_url(config.host, config.port)
     should_open = config.open_browser if open_browser is None else open_browser
 
@@ -370,7 +379,7 @@ def serve(config, *, open_browser: bool | None = None) -> int:
         # A second launch (the icon, the hotkey) is a request to see JARVIS.
         print(f"JARVIS is already running at {url}")
         if should_open:
-            open_window(url, app_window=config.app_window)
+            open_window(url + fragment, app_window=config.app_window)
         return 0
 
     try:
@@ -393,7 +402,7 @@ def serve(config, *, open_browser: bool | None = None) -> int:
 
     if should_open:
         threading.Timer(
-            0.5, lambda: open_window(url, app_window=config.app_window)
+            0.5, lambda: open_window(url + fragment, app_window=config.app_window)
         ).start()
 
     try:

@@ -30,6 +30,7 @@ from pathlib import Path
 
 WEB = Path(__file__).parent / "web"
 HOTKEY = "CTRL+ALT+J"
+CALL_HOTKEY = "CTRL+ALT+K"
 MAC_AGENT = "local.jarvis.assistant"
 
 
@@ -82,7 +83,9 @@ def _desktop_quote(arg: str) -> str:
     return f'"{escaped}"'
 
 
-def desktop_entry(command: list[str], *, icon: Path, autostart: bool = False) -> str:
+def desktop_entry(
+    command: list[str], *, icon: Path, autostart: bool = False, call: list[str] | None = None
+) -> str:
     lines = [
         "[Desktop Entry]",
         "Type=Application",
@@ -98,6 +101,15 @@ def desktop_entry(command: list[str], *, icon: Path, autostart: bool = False) ->
     ]
     if autostart:
         lines += ["X-GNOME-Autostart-enabled=true", "NoDisplay=true"]
+    if call:
+        # Right-click the launcher (or its dock icon) for "Start a call".
+        lines += [
+            "Actions=call;",
+            "",
+            "[Desktop Action call]",
+            "Name=Start a call",
+            "Exec=" + " ".join(_desktop_quote(a) for a in call),
+        ]
     return "\n".join(lines) + "\n"
 
 
@@ -126,7 +138,9 @@ def _linux_desktop_dir(home: Path, run) -> Path | None:
 def _install_linux(report, *, home, env, run, autostart, desktop) -> None:
     paths = _linux_paths(home, env)
     _write(paths["icon"], (WEB / "icon-512.png").read_bytes(), report)
-    entry = desktop_entry(python_command() + ["app"], icon=paths["icon"])
+    entry = desktop_entry(
+        python_command() + ["app"], icon=paths["icon"], call=python_command() + ["call"]
+    )
     _write(paths["menu"], entry.encode(), report)
     if desktop:
         folder = _linux_desktop_dir(home, run)
@@ -254,9 +268,9 @@ def windows_script(
 ) -> str:
     """PowerShell that writes the .lnk shortcuts (only COM can make them)."""
 
-    def shortcut(folder: str, arguments: str, hotkey: str = "") -> str:
+    def shortcut(folder: str, arguments: str, hotkey: str = "", name: str = "JARVIS") -> str:
         lines = [
-            f"$s = $shell.CreateShortcut((Join-Path {folder} 'JARVIS.lnk'))",
+            f"$s = $shell.CreateShortcut((Join-Path {folder} '{name}.lnk'))",
             f"$s.TargetPath = {_ps_quote(target)}",
             f"$s.Arguments = {_ps_quote(arguments)}",
             f"$s.IconLocation = {_ps_quote(str(icon) + ',0')}",
@@ -275,6 +289,7 @@ def windows_script(
         # A hotkey only works on a shortcut in the Start menu or on the desktop,
         # and only one shortcut may own it.
         shortcut("$programs", "-m jarvis app", HOTKEY),
+        shortcut("$programs", "-m jarvis call", CALL_HOTKEY, name="Call JARVIS"),
     ]
     if desktop:
         parts += [
@@ -295,6 +310,7 @@ def _windows_paths(home: Path, env) -> dict[str, Path]:
     return {
         "programs": programs,
         "menu": programs / "JARVIS.lnk",
+        "call": programs / "Call JARVIS.lnk",
         "startup": programs / "Startup" / "JARVIS.lnk",
         "icon": local / "JARVIS" / "jarvis.ico",
     }
@@ -325,6 +341,7 @@ def _install_windows(report, *, home, env, run, autostart, desktop) -> None:
         run,
     )
     report.created.append(str(paths["menu"]))
+    report.created.append(str(paths["call"]))
     if desktop:
         report.created.append("Desktop\\JARVIS.lnk")
     if autostart:
@@ -332,13 +349,14 @@ def _install_windows(report, *, home, env, run, autostart, desktop) -> None:
     else:
         _unlink(paths["startup"], report)
     report.notes.append(
-        "Press Ctrl+Alt+J anywhere to open JARVIS, or find it in the Start menu."
+        "Press Ctrl+Alt+J anywhere to open JARVIS, or Ctrl+Alt+K to call it "
+        "hands-free. Both are in the Start menu too."
     )
 
 
 def _remove_windows(report, *, home, env, run) -> None:
     paths = _windows_paths(home, env)
-    for key in ("menu", "startup", "icon"):
+    for key in ("menu", "call", "startup", "icon"):
         _unlink(paths[key], report)
     try:
         _powershell(

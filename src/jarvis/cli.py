@@ -74,6 +74,12 @@ def build_parser() -> argparse.ArgumentParser:
     app.add_argument("--no-browser", action="store_true", default=argparse.SUPPRESS,
                      help="Do not open a browser window.")
 
+    call = subs.add_parser(
+        "call", help="Open JARVIS and start a hands-free voice call.", parents=[common]
+    )
+    call.add_argument("--port", type=int, default=argparse.SUPPRESS,
+                      help="Port to serve on (default: 8765).")
+
     listen = subs.add_parser(
         "listen", help="Voice mode in the terminal, with no browser.", parents=[common]
     )
@@ -176,6 +182,12 @@ def cmd_app(args) -> int:
     from .server import serve
 
     return serve(_config_from(args))
+
+
+def cmd_call(args) -> int:
+    from .server import serve
+
+    return serve(_config_from(args), open_browser=True, fragment="#call")
 
 
 def cmd_listen(args) -> int:
@@ -398,6 +410,7 @@ def main(argv: list[str] | None = None) -> int:
     handlers = {
         None: cmd_app,  # Bare `jarvis` opens the app.
         "app": cmd_app,
+        "call": cmd_call,
         "listen": cmd_listen,
         "chat": cmd_chat,
         "ask": cmd_ask,

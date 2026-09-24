@@ -386,6 +386,48 @@ button { font: inherit; color: inherit; }
 .send:hover { border-color: var(--arc-dim); color: var(--arc); }
 .send:disabled { opacity: .5; cursor: progress; }
 
+/* ---------- calls ---------- */
+
+.call-start {
+  display: inline-flex; align-items: center; gap: 7px; flex: none;
+  height: 46px; padding: 0 16px; cursor: pointer;
+  border: 1px solid rgb(82 227 164 / 55%); background: rgb(82 227 164 / 8%); color: var(--green);
+  border-radius: 23px;
+  font: 12.5px/1 var(--display); letter-spacing: .18em; text-transform: uppercase;
+}
+.call-start:hover { background: rgb(82 227 164 / 16%); box-shadow: 0 0 18px rgb(82 227 164 / 25%); }
+.call-start:disabled { opacity: .35; cursor: not-allowed; }
+
+.call-bar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center; gap: 8px 14px;
+  padding: 12px 0 16px;
+  border-top: 1px solid var(--line);
+}
+.call-bar p { margin: 0; }
+.call-live {
+  display: flex; align-items: center; gap: 9px;
+  font: 600 12px/1 var(--display); letter-spacing: .22em; text-transform: uppercase; color: var(--green);
+}
+.call-live time { font: 500 14px/1 var(--mono); letter-spacing: .02em; color: var(--ink); font-variant-numeric: tabular-nums; }
+.call-dot {
+  width: 9px; height: 9px; border-radius: 50%; background: var(--green);
+  box-shadow: 0 0 10px rgb(82 227 164 / 80%); animation: live 1.6s ease-in-out infinite;
+}
+.call-bar[data-muted] .call-dot { background: var(--gold); box-shadow: 0 0 10px rgb(255 195 90 / 70%); animation: none; }
+.call-bar[data-muted] .call-live { color: var(--gold); }
+@keyframes live { 50% { opacity: .35; } }
+.call-tip { font-size: 13px; color: var(--muted); }
+.call-bar .chip[aria-pressed="true"] { color: var(--gold); border-color: #6b5220; }
+.hang-up {
+  display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
+  height: 42px; padding: 0 18px; border-radius: 21px; border: 0;
+  background: var(--red); color: #1a0506;
+  font: 600 12.5px/1 var(--display); letter-spacing: .16em; text-transform: uppercase;
+}
+.hang-up:hover { box-shadow: 0 0 20px rgb(255 90 90 / 45%); }
+
 /* ---------- settings drawer ---------- */
 
 .panel {
@@ -424,6 +466,10 @@ button { font: inherit; color: inherit; }
 
 @media (max-width: 560px) {
   .tagline, #status-text { display: none; }
+  .call-bar { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .call-tip { grid-column: 1 / -1; grid-row: 2; }
+  .call-start span { display: none; }
+  .call-start { width: 46px; padding: 0; justify-content: center; }
   .wordmark h1 { font-size: 16px; letter-spacing: .32em; }
   .chip { padding: 7px 10px; letter-spacing: .08em; }
 }
