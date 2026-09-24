@@ -50,6 +50,27 @@ or Dock like any other program.
 
 To stop it: *Settings → Shut down JARVIS*, or `jarvis stop`.
 
+## On your phone, with nothing to install
+
+[`hosted/jarvis.html`](hosted/jarvis.html) is the same HUD as a page on
+claude.ai. Open its link on any phone, tablet or computer where you are signed
+in to claude.ai. Claude is the brain, on your own claude.ai account, so there
+is still no API key, and nothing runs on your computer.
+
+- **Talk** with your device's dictation: the microphone key on a phone
+  keyboard, Windows + H, or Fn twice on a Mac. claude.ai pages cannot use the
+  microphone directly. Replies are read aloud.
+- **Memory follows you.** Facts it remembers are stored privately under your
+  account and appear on every device you open it on.
+- **Timers** ring on the device that set them.
+- **Fast or Thorough** in Settings picks a quick model for conversation or a
+  slower one that thinks first.
+
+It cannot use your computer: no shell, files or wake word. That is what the
+desktop app is for. The first message asks you to allow the page to use
+Claude. To change the page, edit the file and republish it as a claude.ai
+artifact.
+
 ## What it is
 
 A local web app with a Python backend. Type or talk; replies stream back and
@@ -240,6 +261,8 @@ src/jarvis/
   web/          the HUD (no build step, no CDN); reactor.js draws the reactor
   launcher.py   single instance, app window, stop
   shortcuts.py  `jarvis setup`: Start menu, Spotlight and app-menu launchers
+hosted/
+  jarvis.html   the claude.ai version: same HUD, Claude as the brain
   agent.py      conversation loop, tool execution, history trimming
   backends/     ollama + openai-compatible clients, built on urllib
   persona.py    system prompt
